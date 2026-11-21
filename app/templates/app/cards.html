@@ -1,0 +1,209 @@
+{% extends "app/base.html" %}
+{% load money static %}
+{% block title %}Cartões de crédito{% endblock %}
+{% block heading %}Faturas de cartão de crédito{% endblock %}
+{% block subheading %}<p class="sub">Envie a fatura e o programa lança as compras, separa as categorias e agenda as parcelas futuras.</p>{% endblock %}
+{% block content %}
+{% if preview %}
+<div class="grid cols-4">
+  <div class="card stat"><div class="label">Despesas a lançar</div><div class="value neg">{% money summary.expense %}</div><div class="note">{{ summary.ready|default:0 }} lançamento(s) prontos{% if summary.typed %}, {{ summary.typed }} desmarcado(s){% endif %}</div></div>
+  <div class="card stat"><div class="label">Estornos e créditos</div><div class="value pos">{% money summary.income %}</div><div class="note">Entram como receita em Estornos e descontos</div></div>
+  <div class="card stat"><div class="label">Compras parceladas</div><div class="value">{{ summary.plans }}</div><div class="note">{% if summary.plans %}{% money summary.plans_future %} em parcelas futuras{% else %}Nenhuma parcela futura nova{% endif %}</div></div>
+  <div class="card stat{% if not summary.total_ok %} warn{% endif %}"><div class="label">Conferência com a fatura</div>
+    {% if summary.total is not None %}<div class="value">{% money summary.total %}</div><div class="note">{% if summary.total_ok %}Os lançamentos somam o total da fatura.{% else %}Os lançamentos somam {% money summary.lines_sum %}. Confira antes de importar.{% endif %}</div>
+    {% else %}<div class="value">{% money summary.lines_sum %}</div><div class="note">Soma dos lançamentos do arquivo</div>{% endif %}</div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Pré-visualização</h2></div>
+  <p class="muted small">
+    {{ source_labels|get_item:preview.source|default:preview.source }}{% if preview.file_name %}: {{ preview.file_name }}{% endif %}.
+    {% if preview.issuer %}Emissor: {{ preview.issuer }}.{% endif %}
+    {% if preview.holder %}Titular: <strong>{{ preview.holder }}</strong>.{% endif %}
+    {% if summary.cards_seen %}Cartões com final {{ summary.cards_seen|join:", " }}.{% endif %}
+    {% if preview.closing_date %}Fechamento em {{ preview.closing_date|date:"d/m/Y" }}.{% endif %}
+    {% if preview.due_date %}Vencimento em {{ preview.due_date|date:"d/m/Y" }}.{% endif %}
+  </p>
+  {% if account %}<p class="notice">Os lançamentos vão para o cartão <strong>{{ account.name }}</strong>.</p>
+  {% else %}<p class="notice">Será criado o cartão de crédito <strong>{{ preview.new_account_name }}</strong>.</p>{% endif %}
+  <p class="help">Cartão errado (por exemplo, a fatura é de outra pessoa)? Cancele e envie de novo escolhendo o cartão ou criando um com outro nome.</p>
+  {% if preview.date_mode == "due" and not preview.due_date %}<p class="notice warn">Esta fatura não informa a data de vencimento, então as compras foram lançadas na data de fechamento.</p>{% endif %}
+  {% if already %}<p class="notice warn">Uma fatura deste cartão com a mesma data de referência já foi importada em {{ already.created_at|date:"d/m/Y" }}. As linhas repetidas aparecem como duplicata.</p>{% endif %}
+  {% if summary.typed %}<p class="notice warn">{{ summary.typed }} compra(s) parecem já estar lançadas neste cartão (à mão, pelo lançamento rápido ou por uma recorrência) e ficaram desmarcadas. Confira a observação de cada uma; se for outra compra, marque para importar.</p>{% endif %}
+  {% if summary.linked %}<p class="notice">{{ summary.linked }} compra(s) são recorrências deste cartão (assinaturas, contas): entram pela fatura e não serão lançadas de novo na data delas.</p>{% endif %}
+  {% if summary.counts.duplicate %}<p class="notice warn">{{ summary.counts.duplicate }} lançamento(s) já existem e ficaram desmarcados. Se algum não for repetido, marque para importar.</p>{% endif %}
+  {% if summary.counts.error %}<p class="notice error">{{ summary.counts.error }} lançamento(s) com problema não serão importados.</p>{% endif %}
+
+  {% if summary.by_category %}
+  <div class="grid cols-2">
+    <div>
+      <h3>Por categoria</h3>
+      <table class="table">
+        <caption class="sr-only">Total por categoria</caption>
+        <tbody>{% for name, value in summary.by_category %}<tr><td>{{ name }}</td><td class="num">{% money value %}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+    {% if summary.by_card %}
+    <div>
+      <h3>Por cartão</h3>
+      <table class="table">
+        <caption class="sr-only">Total por final de cartão</caption>
+        <tbody>{% for card, value in summary.by_card %}<tr><td>{% if card == "-" %}Sem final informado{% else %}Final {{ card }}{% endif %}</td><td class="num">{% money value %}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="{% url 'card_confirm' %}">
+    {% csrf_token %}
+    <input type="hidden" name="token" value="{{ preview.token }}">
+    {# First submit button is disabled: pressing Enter in a description field must not import everything. #}
+    <button type="submit" disabled hidden aria-hidden="true" tabindex="-1"></button>
+    <div class="table-wrap">
+    <table class="table">
+      <caption class="sr-only">Lançamentos encontrados na fatura</caption>
+      <thead><tr>
+        <th class="check-col"><input type="checkbox" data-check-all="inc_" checked aria-label="Marcar todos"></th>
+        <th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th><th>Situação</th><th>Criar regra</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr class="{% if r.status == 'error' %}is-bad{% elif r.status != 'import' %}is-dup{% endif %}" data-row="{{ r.i }}">
+          <td class="check-col">{% if r.selectable %}<input type="checkbox" name="inc_{{ r.i }}"{% if r.checked %} checked{% endif %} aria-label="Importar {{ r.name }}">{% endif %}</td>
+          <td><span data-show-date>{{ r.date|date:"d/m/Y" }}</span></td>
+          <td>
+            {% if r.selectable %}
+            <a href="#" class="row-link" role="button" data-edit-row="{{ r.i }}" data-description="{{ r.description }}" title="Editar este lançamento">{{ r.name }}</a>
+            <input type="hidden" name="name_{{ r.i }}" value="{{ r.name }}">
+            <input type="hidden" name="note_{{ r.i }}" value="">
+            <input type="hidden" name="date_{{ r.i }}" value="{{ r.date|date:'Y-m-d' }}">
+            <input type="hidden" name="amount_{{ r.i }}" value="{{ r.amount|stringformat:'s' }}">
+            <div class="small muted" data-show-note hidden></div>
+            {% else %}{{ r.name }}{% endif %}
+            {% for n in r.notes %}<div class="small muted">{{ n }}</div>{% endfor %}
+            {% if r.plan %}<div class="small"><span class="tag">{% icon "repeat" %} Agenda as parcelas {{ r.plan.first }} a {{ r.plan.total }}, todo mês até {{ r.plan.end|date:"m/Y" }}</span></div>{% endif %}
+          </td>
+          <td>
+            {% if r.selectable %}
+            <select name="cat_{{ r.i }}" aria-label="Categoria de {{ r.name }}">
+              {% for value, label in options|get_item:r.kind %}<option value="{{ value }}"{% if value == r.choice %} selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+            <div class="small muted">Escolhida por: {{ r.category_source }}</div>
+            {% else %}<span class="muted">-</span>{% endif %}
+          </td>
+          <td class="num {% if r.kind == 'income' %}pos{% else %}neg{% endif %}">{% if r.kind == "income" %}+{% endif %}<span data-show-amount>{% money r.amount %}</span></td>
+          <td>
+            {% if r.status == "import" and r.typed %}<span class="tag warn">Já lançada?</span>
+            {% elif r.status == "import" %}<span class="tag income">Importar</span>
+            {% elif r.status == "error" %}{% for e in r.errors %}<div class="row-error">{{ e }}</div>{% endfor %}
+            {% else %}<span class="tag warn">{{ r.status_label }}</span><div class="small muted">{{ r.reason }}</div>{% endif %}
+          </td>
+          <td>{% if r.status == "import" and r.kind == "expense" %}<input type="checkbox" name="rule_{{ r.i }}" aria-label="Criar regra para {{ r.name }}">{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p class="help">Marque "Criar regra" para que as próximas compras nesse estabelecimento já entrem na categoria escolhida.</p>
+
+    {% if summary.counts.payment %}
+    <div class="field">
+      <label for="payment_account">Pagamento da fatura encontrado ({% money summary.payments %})</label>
+      <select name="payment_account" id="payment_account">
+        <option value="">Não registrar (eu já lancei ou vou lançar à parte)</option>
+        {% for a in payment_accounts %}{% if not a.is_credit %}<option value="{{ a.pk }}">Registrar como transferência de {{ a.name }} para o cartão</option>{% endif %}{% endfor %}
+      </select>
+      <p class="help">Pagar a fatura não é uma despesa nova: as compras já foram contadas. A transferência só acerta os saldos das contas.</p>
+    </div>
+    {% endif %}
+
+    <div class="actions">
+      <button class="btn btn-primary" type="submit"{% if not summary.counts.import and not summary.counts.payment and not summary.counts.duplicate %} disabled{% endif %}>Importar lançamentos marcados</button>
+    </div>
+  </form>
+  <dialog id="row-dialog" aria-labelledby="row-title">
+    <form method="dialog" id="row-form" novalidate>
+      <div class="dialog-head"><h2 id="row-title">Editar lançamento</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Fechar">{% icon "x" %}</button></div>
+      <div class="dialog-body">
+        <p class="small muted" data-original></p>
+        <div class="form-grid">
+          <div class="field wide"><label for="row-name">Descrição</label><input id="row-name" name="name" type="text" maxlength="120" autocomplete="off"></div>
+          <div class="field"><label for="row-date">Data</label><input id="row-date" name="date" type="date"></div>
+          <div class="field"><label for="row-amount">Valor</label><input id="row-amount" name="amount" type="text" data-money inputmode="decimal"></div>
+          <div class="field wide"><label for="row-category">Categoria</label><select id="row-category" name="category"></select></div>
+          <div class="field wide"><label for="row-note">Observação (opcional)</label><textarea id="row-note" name="note" rows="2" maxlength="500"></textarea></div>
+        </div>
+        <p class="field-error" data-row-error role="alert"></p>
+        <p class="help">Nada é salvo agora: as mudanças entram quando você clicar em "Importar lançamentos marcados".</p>
+      </div>
+      <div class="dialog-foot"><button class="btn" type="button" data-close>Cancelar</button><button class="btn btn-primary" type="submit">Aplicar</button></div>
+    </form>
+  </dialog>
+  <form method="post" action="{% url 'card_cancel' %}">{% csrf_token %}<button class="btn btn-quiet btn-sm" type="submit">Cancelar e enviar outra fatura</button></form>
+</div>
+{% else %}
+<div class="grid cols-2">
+  <form class="card" method="post" enctype="multipart/form-data" novalidate data-busy="Lendo a fatura...">
+    {% csrf_token %}
+    <div class="card-head"><h2>Enviar uma fatura</h2></div>
+    {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+    {% include "app/_field.html" with field=form.file %}
+    {% include "app/_field.html" with field=form.pasted %}
+    {% include "app/_field.html" with field=form.account %}
+    {% include "app/_field.html" with field=form.new_account_name %}
+    <p class="help">{% if profile.card_date_mode == "purchase" %}As compras entram no <strong>mês da compra</strong>{% else %}As compras entram no <strong>mês da fatura</strong> (data de vencimento), com a data real da compra na observação{% endif %}. Para mudar, veja <a href="{% url 'settings' %}">Configurações</a>.</p>
+    <p class="help">Você verá tudo antes de qualquer coisa ser salva.</p>
+    <p class="notice" data-busy-note hidden>Lendo a fatura. PDFs podem levar até um minuto; não feche a página.</p>
+    <p><button class="btn btn-primary" type="submit">Ler fatura</button></p>
+  </form>
+  <div class="card">
+    <div class="card-head"><h2>Como funciona</h2></div>
+    <ul class="small">
+      <li><strong>CSV do Nubank</strong> e <strong>CSV padrão de fatura</strong> são lidos aqui mesmo, sem enviar nada para fora.</li>
+      <li><strong>PDF</strong> de qualquer banco: mande o PDF para a sua IA usando a skill de fatura (ou o texto pronto abaixo) e cole a resposta no campo ao lado.{% if not ai_problem %} Com a leitura automática ligada, o PDF também pode ser enviado direto: ele vai para o {{ ai_label }}.{% endif %}</li>
+      <li>As categorias seguem as suas regras de categorização. Sem regra, o programa sugere uma e você pode trocar antes de importar.</li>
+      <li>Compras parceladas ficam na categoria do que foi comprado e ganham a tag "parcelado". Se ainda faltam parcelas, elas são agendadas em Contas recorrentes até a última, e as próximas faturas não lançam de novo.</li>
+      <li>Estornos na mesma fatura anulam a compra. Pagamentos da fatura e saldo do mês anterior não contam como despesa.</li>
+    </ul>
+    {% if not ai_problem %}<p class="notice success">Leitura automática de PDF ligada.</p>{% endif %}
+  </div>
+</div>
+<div class="card">
+  <div class="card-head"><h2>Converter um PDF com a sua IA</h2></div>
+  <ol class="small">
+    <li>Abra o chat da sua IA e anexe o PDF da fatura. Se instalou a skill de fatura, basta escrever "converte esta fatura".</li>
+    <li>Sem a skill, copie o texto abaixo e mande junto com o PDF. Ele já traz as suas categorias.</li>
+    <li>Copie a resposta (o bloco que começa com <code># emissor</code>) e cole no campo "Ou cole o CSV que a IA devolveu".</li>
+  </ol>
+  <label for="std-prompt">Texto pronto para a IA</label>
+  <textarea id="std-prompt" rows="8" readonly spellcheck="false">{{ standard_prompt }}</textarea>
+  <p><button class="btn btn-sm" type="button" data-copy-target="std-prompt">{% icon "copy" %}Copiar texto</button></p>
+</div>
+{% if history %}
+<div class="card">
+  <div class="card-head"><h2>Faturas importadas</h2></div>
+  <div class="table-wrap">
+  <table class="table">
+    <caption class="sr-only">Faturas já importadas</caption>
+    <thead><tr><th>Cartão</th><th>Referência</th><th>Origem</th><th class="num">Lançamentos</th><th class="num">Valor lançado</th><th>Importada em</th></tr></thead>
+    <tbody>
+    {% for inv in history %}
+      <tr>
+        <td><a href="{% url 'transactions' %}?account={{ inv.account_id }}">{{ inv.account.name }}</a></td>
+        <td>{{ inv.reference_date|date:"m/Y" }}</td>
+        <td>{{ source_labels|get_item:inv.source|default:inv.source }}</td>
+        <td class="num">{{ inv.lines_imported }}{% if inv.plans_created %} (+{{ inv.plans_created }} parcelado{{ inv.plans_created|pluralize }}){% endif %}</td>
+        <td class="num">{% money inv.amount_imported %}</td>
+        <td>{{ inv.created_at|date:"d/m/Y" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if preview %}<script type="module" src="{% static 'app/js/cards.js' %}?v={{ asset_version }}"></script>{% endif %}{% endblock %}

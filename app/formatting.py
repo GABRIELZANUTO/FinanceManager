@@ -29,6 +29,15 @@ def _group(digits, indian):
     return parts
 
 
+MONTH_NAMES = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro",
+               "novembro", "dezembro")
+
+
+def month_label(day):
+    """'março de 2025' (Python's %B depends on the OS locale, so the names are spelled out here)."""
+    return f"{MONTH_NAMES[day.month - 1]} de {day.year}"
+
+
 def format_number(value, number_format="intl", places=2):
     value = Decimal(value).quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
     sign = "-" if value < 0 else ""
@@ -51,5 +60,6 @@ def format_money(value, profile=None, with_symbol=True):
     sign = ""
     if text.startswith("-"):
         sign, text = "-", text[1:]
-    joiner = " " if symbol[-1].isalpha() else ""
+    # "R$ 1.234,56", "Rs 1,500.00", "$1,500.00": a space when the symbol contains letters
+    joiner = " " if any(c.isalpha() for c in symbol) else ""
     return f"{sign}{symbol}{joiner}{text}"

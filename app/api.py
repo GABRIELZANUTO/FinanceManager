@@ -6,22 +6,24 @@ from functools import wraps
 
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Count, Q
 from django.http import Http404, JsonResponse
 from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from urllib.parse import urlencode
 
-from . import services, stats
+from . import concurrency, services, stats
+from .concurrency import StaleRecord
 from .formatting import format_money
 from .filters import TransactionFilter
-from . import budgeting, demo, insights as insight_lib, nlq
+from . import budgeting, debts, demo, insights as insight_lib, nlq, planning, quick
 from .forms import (
     AccountForm, BudgetForm, CategoryForm, ContributionForm, GoalForm, LedgerEntryForm, PersonForm, RecurringForm, RuleForm,
-    SavedViewForm, SplitForm, TransactionForm, TransferForm,
+    SavedViewForm, SplitAmongForm, SplitForm, TransactionForm, TransferForm,
 )
 from .models import (
-    Account, AuditEntry, Budget, Category, CategoryRule, Contribution, Goal, LedgerEntry, Person, RecurringTransaction,
+    KIND_PLURAL, Account, AuditEntry, Budget, Category, CategoryRule, Contribution, Goal, LedgerEntry, Person, RecurringTransaction,
     SavedView, Tag, Transaction, Transfer,
 )
 
@@ -29,14 +31,20 @@ MAX_BODY = 64 * 1024
 MAX_BULK = 500
 
 
+# Machine readable reason of an error, for API clients (the screens use "message").
+ERROR_CODES = {400: "validation", 401: "auth", 403: "forbidden", 404: "not_found", 405: "method", 409: "in_use",
+               410: "gone", 413: "payload_too_large", 422: "validation", 429: "rate_limited"}
+
+
 class ApiError(Exception):
-    def __init__(self, message, status=400, errors=None):
+    def __init__(self, message, status=400, errors=None, code=None):
         super().__init__(message)
-        self.message, self.status, self.errors = message, status, errors or {}
+        self.message, self.status, self.errors, self.code = message, status, errors or {}, code
 
 
-def error_response(message, status, errors=None):
-    return JsonResponse({"ok": False, "message": message, "errors": errors or {}}, status=status)
+def error_response(message, status, errors=None, code=None):
+    return JsonResponse({"ok": False, "message": message, "errors": errors or {},
+                         "code": code or ERROR_CODES.get(status, "error")}, status=status)
 
 
 def form_errors(form):
@@ -44,8 +52,11 @@ def form_errors(form):
     return {field: [e["message"] for e in errs] for field, errs in form.errors.get_json_data().items()}
 
 
-def api(*methods):
-    """Method restriction + authentication + uniform JSON errors."""
+def api(*methods, max_body=MAX_BODY, scope=None):
+    """Method restriction + authentication + uniform JSON errors.
+
+    With an API key (/api/v1/), GET needs the "read" scope and other methods "write", unless
+    ``scope`` names another one. ``max_body`` is the largest JSON body accepted, in bytes."""
     allowed = {m.upper() for m in methods}
 
     def decorator(view):
@@ -53,42 +64,88 @@ def api(*methods):
         @never_cache
         def wrapper(request, *args, **kwargs):
             if request.method not in allowed:
-                response = error_response("Method not allowed.", 405)
+                response = error_response("Método não permitido.", 405)
                 response["Allow"] = ", ".join(sorted(allowed))
                 return response
             if not request.user.is_authenticated:
-                return error_response("Authentication required.", 401)
+                return error_response("É preciso entrar no sistema.", 401)
+            token = getattr(request, "api_token", None)
+            if token is not None:
+                needed = scope or ("read" if request.method in ("GET", "HEAD") else "write")
+                if needed not in token.scope_set:
+                    return error_response(f"Esta chave de acesso não tem permissão para isso ({needed}).", 403, code="scope")
+            request.max_body = max_body
             try:
-                return view(request, *args, **kwargs)
+                if request.method in ("GET", "HEAD"):
+                    return view(request, *args, **kwargs)
+                # Writes in one transaction, so the change number (SyncChange.seq) is born with them.
+                # Not ATOMIC_REQUESTS: with SQLite in IMMEDIATE mode even a GET would take the write lock.
+                with transaction.atomic():
+                    return view(request, *args, **kwargs)
             except ApiError as exc:
-                return error_response(exc.message, exc.status, exc.errors)
+                return error_response(exc.message, exc.status, exc.errors, exc.code)
+            except StaleRecord as exc:
+                return conflict_response(exc)
             except Http404:
-                return error_response("Not found.", 404)
+                if request.method not in ("GET", "HEAD") and concurrency.requested(request, _sent(request))[0] is not None:
+                    return error_response("Este registro foi apagado em outro lugar.", 404, code="gone")
+                return error_response("Não encontrado.", 404)
             except ValidationError as exc:
                 return error_response(" ".join(exc.messages), 422, {"__all__": exc.messages})
 
+        wrapper.api_methods = sorted(allowed)
+        wrapper.api_scope = scope
         return wrapper
 
     return decorator
 
 
+def conflict_response(exc):
+    obj = exc.obj
+    return JsonResponse({
+        "ok": False, "code": "conflict", "errors": {},
+        "message": "Este registro foi alterado em outro lugar.",
+        "current": exc.current if exc.current is not None else ident(obj),
+        "version": obj.version, "updated_by": obj.updated_by,
+        "updated_at": obj.updated_at.isoformat() if obj.updated_at else None,
+    }, status=409)
+
+
+def _sent(request):
+    """The request's data for reading "version" and "force" (never raises)."""
+    try:
+        return body(request) if request.content_type == "application/json" and request.body else request.POST
+    except ApiError:
+        return {}
+
+
+def guard(request, obj, current=None):
+    """Refuse this write if the record changed since the screen loaded it (see app/concurrency.py)."""
+    concurrency.check(request, obj, _sent(request), current)
+
+
+def with_etag(response, obj):
+    response["ETag"] = f'"{obj.version}"'
+    return response
+
+
 def body(request):
     """Request payload as a plain dict (JSON or form encoded)."""
     if request.content_type == "application/json":
-        if len(request.body) > MAX_BODY:
-            raise ApiError("Request body is too large.", 413)
+        if len(request.body) > getattr(request, "max_body", MAX_BODY):
+            raise ApiError("O corpo da requisição é grande demais.", 413)
         try:
             data = json.loads(request.body or b"{}")
         except (ValueError, UnicodeDecodeError):
-            raise ApiError("Request body is not valid JSON.") from None
+            raise ApiError("O corpo da requisição não é um JSON válido.") from None
         if not isinstance(data, dict):
-            raise ApiError("Request body must be a JSON object.")
+            raise ApiError("O corpo da requisição deve ser um objeto JSON.")
         return data
     return request.POST
 
 
 def invalid(form):
-    return error_response("Please correct the highlighted fields.", 422, form_errors(form))
+    return error_response("Corrija os campos destacados.", 422, form_errors(form))
 
 
 def dec(value):
@@ -97,37 +154,67 @@ def dec(value):
 
 
 
+def ident(obj):
+    """Global identity and version of a record (sync, API clients and edit conflict checks)."""
+    return {"uid": str(obj.uid), "version": obj.version,
+            "updated_at": obj.updated_at.isoformat() if obj.updated_at else None, "updated_by": obj.updated_by}
+
+
 def tx_json(t):
     return {
-        "id": t.pk, "name": t.name, "amount": dec(t.amount), "kind": t.kind, "date": t.date.isoformat(),
+        **ident(t), "id": t.pk, "name": t.name, "amount": dec(t.amount), "kind": t.kind, "date": t.date.isoformat(),
         "category": {"id": t.category_id, "name": t.category.name, "color": t.category.color, "icon": t.category.icon},
         "account": {"id": t.account_id, "name": t.account.name} if t.account_id else None,
         "payee": t.payee, "tags": [tag.name for tag in t.tags.all()],
         "note": t.note, "recurring": t.recurring_id is not None,
+        "purchase_date": t.purchase_date.isoformat() if t.purchase_date else None,
         "split": t.split_group is not None, "reconciled": t.reconciled,
     }
 
 
 def cat_json(c):
-    data = {"id": c.pk, "name": c.name, "kind": c.kind, "color": c.color, "icon": c.icon,
+    data = {**ident(c), "id": c.pk, "name": c.name, "kind": c.kind, "color": c.color, "icon": c.icon,
             "parent": c.parent_id, "full_name": c.full_name}
     if "count" in c.__dict__:
         data["count"] = c.count
     return data
 
 
-def account_json(a, balance):
-    return {"id": a.pk, "name": a.name, "type": a.type, "icon": a.icon, "archived": a.archived,
-            "opening_balance": dec(a.opening_balance), "balance": dec(balance)}
+def account_json(a, balance, full=None):
+    """``balance`` is as of today; ``full`` also counts entries dated later (scheduled)."""
+    full = balance if full is None else full
+    data = {**ident(a), "id": a.pk, "name": a.name, "type": a.type, "icon": a.icon, "archived": a.archived,
+            "opening_balance": dec(a.opening_balance), "balance": dec(balance), "scheduled": dec(full - balance),
+            "credit_limit": dec(a.credit_limit) if a.credit_limit is not None else None, "due_day": a.due_day,
+            "closing_day": a.closing_day}
+    if a.is_credit:
+        # Purchases dated at the due date already use the limit; installments still to come hold
+        # it too (as the bank does), although they are not posted yet.
+        held = planning.installments_left(a)
+        purchases = max(services.ZERO, -full)
+        used = purchases + held["amount"]
+        data["used"] = dec(used)
+        data["used_purchases"] = dec(purchases)
+        data["installments_left"] = dec(held["amount"])
+        data["installments_count"] = held["count"]
+        data["installment_plans"] = [{"id": p["id"], "name": p["name"], "left": p["left"], "each": dec(p["each"]),
+                                      "amount": dec(p["amount"]), "last": p["last"].isoformat()} for p in held["plans"]]
+        if a.credit_limit:
+            data["available"] = dec(a.credit_limit - used)
+            data["used_percent"] = round(float(used / a.credit_limit * 100), 1)
+        due = planning.next_due_date(a)
+        data["next_due"] = due.isoformat() if due else None
+    return data
 
 
 def recurring_json(r):
     return {
-        "id": r.pk, "name": r.name, "amount": dec(r.amount), "kind": r.kind, "note": r.note, "payee": r.payee,
+        **ident(r), "id": r.pk, "name": r.name, "amount": dec(r.amount), "kind": r.kind, "note": r.note, "payee": r.payee,
         "category": {"id": r.category_id, "name": r.category.name, "color": r.category.color, "icon": r.category.icon},
         "account": r.account_id, "frequency": r.frequency, "start_date": r.start_date.isoformat(),
         "end_date": r.end_date.isoformat() if r.end_date else None, "next_due": r.next_due.isoformat(),
         "active": r.active, "last_error": r.last_error,
+        "installment_first": r.installment_first, "installment_total": r.installment_total,
     }
 
 
@@ -150,7 +237,7 @@ def after_write(user):
     balance = services.balance_for(user)
     data = {"balance": dec(balance)}
     if balance < 0:
-        data["warning"] = "Your balance is below zero."
+        data["warning"] = "Seu saldo está abaixo de zero."
     return data
 
 
@@ -166,7 +253,11 @@ def transactions(request):
         form = TransactionForm(body(request), user=request.user)
         if not form.is_valid():
             return invalid(form)
-        tx = services.save_transaction(form.save(commit=False), tags=form.tag_names)
+        new = form.save(commit=False)
+        if new.account_id is None:
+            new.account = services.default_account(request.user)
+        planning.apply_card_rule(request.user, new, new.date)    # the date typed is the day of the purchase
+        tx = services.save_transaction(new, tags=form.tag_names)
         tx = owned_transaction(request, tx.pk)
         return JsonResponse({"ok": True, "transaction": tx_json(tx), **after_write(request.user)}, status=201)
 
@@ -186,17 +277,26 @@ def transactions(request):
 def transaction_detail(request, pk):
     tx = owned_transaction(request, pk)
     if request.method == "GET":
-        return JsonResponse({"ok": True, "transaction": tx_json(tx)})
+        return with_etag(JsonResponse({"ok": True, "transaction": tx_json(tx)}), tx)
+    guard(request, tx, lambda: tx_json(owned_transaction(request, pk, include_deleted=True)))
     if request.method == "DELETE":
         services.delete_transactions(request.user, Transaction.objects.filter(pk=tx.pk))
         return JsonResponse({"ok": True, "id": tx.pk, **after_write(request.user)})
     data = body(request)
     if "tags" not in data:
         data = {**data, "tags": [t.name for t in tx.tags.all()]} if isinstance(data, dict) else data
+    old_date, old_purchase, old_account = tx.date, tx.purchase_date, tx.account_id
     form = TransactionForm(data, user=request.user, instance=tx)
     if not form.is_valid():
         return invalid(form)
-    tx = services.save_transaction(form.save(commit=False), tags=form.tag_names)
+    new = form.save(commit=False)
+    if new.account_id is None:
+        new.account = services.default_account(request.user)
+    if new.date == (old_purchase or old_date) and new.account_id == old_account:
+        new.date, new.purchase_date = old_date, old_purchase     # date and card untouched: keep as booked
+    else:
+        planning.apply_card_rule(request.user, new, new.date)
+    tx = services.save_transaction(new, tags=form.tag_names)
     tx = owned_transaction(request, tx.pk)
     return JsonResponse({"ok": True, "transaction": tx_json(tx), **after_write(request.user)})
 
@@ -204,6 +304,7 @@ def transaction_detail(request, pk):
 @api("POST")
 def transaction_restore(request, pk):
     tx = owned_transaction(request, pk, include_deleted=True)
+    guard(request, tx, lambda: tx_json(owned_transaction(request, pk, include_deleted=True)))
     services.restore_transactions(request.user, [tx.pk])
     tx = owned_transaction(request, pk)
     return JsonResponse({"ok": True, "transaction": tx_json(tx), **after_write(request.user)})
@@ -214,33 +315,52 @@ def transactions_bulk(request):
     data = body(request)
     action = data.get("action")
     ids = data.get("ids")
-    if action not in ("delete", "restore", "category", "reconcile", "unreconcile"):
-        raise ApiError("Unknown action.", errors={"action": ["Choose delete, restore, category, reconcile or unreconcile."]})
+    if action not in ("delete", "restore", "category", "reconcile", "unreconcile", "date"):
+        raise ApiError("Ação desconhecida.", errors={"action": ["Escolha delete, restore, category, reconcile, unreconcile ou date."]})
     if not isinstance(ids, list) or not ids or len(ids) > MAX_BULK:
-        raise ApiError(f"Select between 1 and {MAX_BULK} transactions.")
+        raise ApiError(f"Selecione entre 1 e {MAX_BULK} transações.")
     try:
         ids = sorted({int(i) for i in ids})
     except (TypeError, ValueError):
-        raise ApiError("Transaction ids must be numbers.") from None
+        raise ApiError("Os ids das transações devem ser números.") from None
     if Transaction.all_objects.filter(user=request.user, pk__in=ids).count() != len(ids):
         raise Http404
+    # Optional {id: version}: rows changed elsewhere since the list was loaded stay as they are.
+    skipped = []
+    versions = data.get("versions")
+    if isinstance(versions, dict) and versions:
+        saved = dict(Transaction.all_objects.select_for_update().filter(pk__in=ids).values_list("pk", "version"))
+        skipped = [i for i in ids if str(i) in versions and str(versions[str(i)]) != str(saved[i])]
+        ids = [i for i in ids if i not in skipped]
+        if not ids:
+            return JsonResponse({"ok": True, "ids": [], "skipped": skipped, **after_write(request.user)})
     if action == "delete":
         services.delete_transactions(request.user, Transaction.objects.filter(pk__in=ids))
     elif action == "restore":
         services.restore_transactions(request.user, ids)
     elif action in ("reconcile", "unreconcile"):
         services.set_reconciled(request.user, ids, action == "reconcile")
+    elif action == "date":
+        new_date = _iso_date(data.get("date"), None)
+        shift = data.get("shift_months")
+        if new_date is None and not (isinstance(shift, int) and not isinstance(shift, bool) and shift and -24 <= shift <= 24):
+            raise reassign_error("date", "Informe a nova data ou quantos meses mover.")
+        try:
+            moved = services.change_dates(request.user, ids, date=new_date, shift_months=None if new_date else shift)
+        except ValidationError as exc:
+            raise reassign_error("date", exc.messages[0]) from None
+        return JsonResponse({"ok": True, "ids": ids, "skipped": skipped, "moved": moved, **after_write(request.user)})
     else:
         try:
             category = Category.objects.get(pk=int(data.get("category")), user=request.user)
         except (Category.DoesNotExist, TypeError, ValueError):
-            raise reassign_error("category", "Choose one of your own categories.") from None
+            raise reassign_error("category", "Escolha uma das suas categorias.") from None
         kinds = set(Transaction.objects.filter(pk__in=ids).values_list("kind", flat=True))
         bad = [k for k in kinds if not category.accepts(k)]
         if bad:
-            raise reassign_error("category", f"This category cannot be used for {bad[0]} transactions.")
+            raise reassign_error("category", f"Esta categoria não pode ser usada em {KIND_PLURAL[bad[0]]}.")
         services.change_category(request.user, ids, category)
-    return JsonResponse({"ok": True, "ids": ids, **after_write(request.user)})
+    return JsonResponse({"ok": True, "ids": ids, "skipped": skipped, **after_write(request.user)})
 
 
 @api("POST")
@@ -292,6 +412,7 @@ def trash_item(request, pk):
         tx = Transaction.all_objects.get(pk=pk, user=request.user, deleted_at__isnull=False)
     except Transaction.DoesNotExist:
         raise Http404 from None
+    guard(request, tx)
     tx.delete()
     return JsonResponse({"ok": True, "id": pk})
 
@@ -350,7 +471,8 @@ def categories(request):
 def category_detail(request, pk):
     cat = owned_category(request, pk)
     if request.method == "GET":
-        return JsonResponse({"ok": True, "category": cat_json(cat)})
+        return with_etag(JsonResponse({"ok": True, "category": cat_json(cat)}), cat)
+    guard(request, cat, lambda: cat_json(owned_category(request, pk)))
     if request.method == "POST":
         form = CategoryForm(body(request), user=request.user, instance=cat)
         if not form.is_valid():
@@ -364,19 +486,19 @@ def category_detail(request, pk):
         raw = request.GET.get("reassign_to")
         if not raw:
             raise ApiError(
-                f"“{cat.name}” is used by {in_use} item(s). Choose a category to move them to.",
-                409, {"reassign_to": ["Required because the category is in use."]})
+                f"“{cat.name}” é usada por {in_use} item(ns). Escolha uma categoria para onde movê-los.",
+                409, {"reassign_to": ["Obrigatório porque a categoria está em uso."]})
         try:
             target = Category.objects.get(pk=int(raw), user=request.user)
         except (Category.DoesNotExist, ValueError):
-            raise reassign_error("reassign_to", "Choose one of your own categories.") from None
+            raise reassign_error("reassign_to", "Escolha uma das suas categorias.") from None
         if target.pk == cat.pk:
-            raise reassign_error("reassign_to", "Choose a different category.")
+            raise reassign_error("reassign_to", "Escolha uma categoria diferente.")
         used_kinds = set(Transaction.objects.filter(category=cat).values_list("kind", flat=True))
         used_kinds |= set(cat.recurring.values_list("kind", flat=True))
         bad = [k for k in used_kinds if not target.accepts(k)]
         if bad:
-            raise reassign_error("reassign_to", f"This category cannot be used for {bad[0]} transactions.")
+            raise reassign_error("reassign_to", f"Esta categoria não pode ser usada em {KIND_PLURAL[bad[0]]}.")
     with services.locked(request.user):
         if target:
             Transaction.all_objects.filter(category=cat).update(category=target)
@@ -397,8 +519,11 @@ def accounts(request):
             return invalid(form)
         acct = form.save()
         return JsonResponse({"ok": True, "account": account_json(acct, acct.opening_balance)}, status=201)
-    balances = services.account_balances(request.user)
-    rows = [account_json(a, balances[a.pk]) for a in Account.objects.filter(user=request.user)]
+    # Balances as of today (or ?ate=YYYY-MM-DD); entries dated later are reported apart as "scheduled".
+    until = _iso_date(request.GET.get("ate"), timezone.localdate())
+    balances = services.account_balances(request.user, until=until)
+    full = services.account_balances(request.user)
+    rows = [account_json(a, balances[a.pk], full[a.pk]) for a in Account.objects.filter(user=request.user)]
     total = sum((Decimal(r["balance"]) for r in rows), services.ZERO)
     return JsonResponse({"ok": True, "accounts": rows, "total": dec(total)})
 
@@ -406,27 +531,33 @@ def accounts(request):
 @api("GET", "POST", "DELETE")
 def account_detail(request, pk):
     acct = owned(Account, request, pk)
-    balances = services.account_balances(request.user)
     if request.method == "GET":
-        return JsonResponse({"ok": True, "account": account_json(acct, balances[acct.pk])})
+        return with_etag(JsonResponse({"ok": True, "account": account_now(request, acct)}), acct)
+    guard(request, acct, lambda: account_now(request, owned(Account, request, pk)))
     if request.method == "POST":
         form = AccountForm(body(request), user=request.user, instance=acct)
         if not form.is_valid():
             return invalid(form)
         acct = form.save()
-        return JsonResponse({"ok": True, "account": account_json(acct, services.account_balance(acct))})
+        today_balances = services.account_balances(request.user, until=timezone.localdate())
+        return JsonResponse({"ok": True, "account": account_json(acct, today_balances[acct.pk], services.account_balance(acct))})
     busy = (Transaction.all_objects.filter(account=acct).exists() or Transfer.objects.filter(
         Q(from_account=acct) | Q(to_account=acct)).exists() or acct.recurring.exists())
     if busy:
-        raise ApiError("This account has activity. Archive it instead of deleting it.", 409)
+        raise ApiError("Esta conta tem movimentações. Arquive-a em vez de excluí-la.", 409)
     if Account.objects.filter(user=request.user).count() == 1:
-        raise ApiError("You need at least one account.", 409)
+        raise ApiError("Você precisa ter pelo menos uma conta.", 409)
     acct.delete()
     return JsonResponse({"ok": True, "id": pk})
 
 
+def account_now(request, acct):
+    today_balances = services.account_balances(request.user, until=timezone.localdate())
+    return account_json(acct, today_balances[acct.pk], services.account_balance(acct))
+
+
 def transfer_json(t):
-    return {"id": t.pk, "from": {"id": t.from_account_id, "name": t.from_account.name},
+    return {**ident(t), "id": t.pk, "from": {"id": t.from_account_id, "name": t.from_account.name},
             "to": {"id": t.to_account_id, "name": t.to_account.name}, "amount": dec(t.amount),
             "date": t.date.isoformat(), "note": t.note}
 
@@ -447,6 +578,7 @@ def transfers(request):
 @api("DELETE")
 def transfer_detail(request, pk):
     transfer = owned(Transfer, request, pk)
+    guard(request, transfer, lambda: transfer_json(owned(Transfer, request, pk)))
     services.delete_transfer(transfer)
     return JsonResponse({"ok": True, "id": pk})
 
@@ -457,27 +589,28 @@ def transfer_detail(request, pk):
 def tags(request):
     rows = Tag.objects.filter(user=request.user).annotate(
         count=Count("transactions", filter=Q(transactions__deleted_at__isnull=True)))
-    return JsonResponse({"ok": True, "tags": [{"id": t.pk, "name": t.name, "count": t.count} for t in rows]})
+    return JsonResponse({"ok": True, "tags": [{**ident(t), "id": t.pk, "name": t.name, "count": t.count} for t in rows]})
 
 
 @api("POST", "DELETE")
 def tag_detail(request, pk):
     tag = owned(Tag, request, pk)
+    guard(request, tag, lambda: {**ident(Tag.objects.get(pk=pk)), "id": pk, "name": Tag.objects.get(pk=pk).name})
     if request.method == "DELETE":
         tag.delete()
         return JsonResponse({"ok": True, "id": pk})
     name = " ".join(str(body(request).get("name", "")).split())
     if not name or len(name) > 30:
-        raise ApiError("Enter a name of up to 30 characters.", 422, {"name": ["Enter a name of up to 30 characters."]})
+        raise ApiError("Informe um nome de até 30 caracteres.", 422, {"name": ["Informe um nome de até 30 caracteres."]})
     if Tag.objects.filter(user=request.user, name__iexact=name).exclude(pk=pk).exists():
-        raise ApiError("You already have a tag with that name.", 422, {"name": ["You already have a tag with that name."]})
+        raise ApiError("Você já tem uma tag com esse nome.", 422, {"name": ["Você já tem uma tag com esse nome."]})
     tag.name = name
     tag.save(update_fields=["name"])
-    return JsonResponse({"ok": True, "tag": {"id": tag.pk, "name": tag.name}})
+    return JsonResponse({"ok": True, "tag": {**ident(tag), "id": tag.pk, "name": tag.name}})
 
 
 def rule_json(r):
-    return {"id": r.pk, "pattern": r.pattern, "priority": r.priority, "active": r.active,
+    return {**ident(r), "id": r.pk, "pattern": r.pattern, "priority": r.priority, "active": r.active,
             "category": {"id": r.category_id, "name": r.category.name, "color": r.category.color}}
 
 
@@ -496,6 +629,7 @@ def rules(request):
 @api("POST", "DELETE")
 def rule_detail(request, pk):
     rule = owned(CategoryRule, request, pk)
+    guard(request, rule, lambda: rule_json(owned(CategoryRule, request, pk)))
     if request.method == "DELETE":
         rule.delete()
         return JsonResponse({"ok": True, "id": pk})
@@ -536,13 +670,15 @@ def saved_views(request):
             return invalid(form)
         form.save()
     rows = SavedView.objects.filter(user=request.user)
-    return JsonResponse({"ok": True, "views": [{"id": v.pk, "name": v.name, "query": v.query} for v in rows]},
+    return JsonResponse({"ok": True, "views": [{**ident(v), "id": v.pk, "name": v.name, "query": v.query} for v in rows]},
                         status=201 if request.method == "POST" else 200)
 
 
 @api("DELETE")
 def saved_view_detail(request, pk):
-    owned(SavedView, request, pk).delete()
+    view = owned(SavedView, request, pk)
+    guard(request, view)
+    view.delete()
     return JsonResponse({"ok": True, "id": pk})
 
 
@@ -550,7 +686,7 @@ def saved_view_detail(request, pk):
 
 def budget_json(item):
     out = dict(item)
-    for key in ("limit", "carry", "available", "spent", "remaining", "projected", "safe_per_day"):
+    for key in ("limit", "carry", "available", "spent", "planned", "with_planned", "remaining", "projected", "safe_per_day"):
         out[key] = dec(out[key])
     out["weekly"] = [dec(x) for x in out["weekly"]]
     out["weekly_limit"] = [dec(x) for x in out["weekly_limit"]]
@@ -584,7 +720,9 @@ def budgets(request):
 
 @api("DELETE")
 def budget_detail(request, pk):
-    owned(Budget, request, pk).delete()
+    item = owned(Budget, request, pk)
+    guard(request, item)
+    item.delete()
     return JsonResponse({"ok": True, "id": pk})
 
 
@@ -594,7 +732,7 @@ def budget_copy(request):
     source = services.parse_month(data.get("from"), default=None) if data.get("from") else None
     target = services.parse_month(data.get("to"), default=None) if data.get("to") else None
     if source is None or target is None or source == target:
-        raise ApiError("Choose two different months like 2025-03.")
+        raise ApiError("Escolha dois meses diferentes, no formato 2025-03.")
     created = budgeting.copy_month(request.user, source, target)
     return JsonResponse({**budget_payload(request.user, target), "copied": created})
 
@@ -617,14 +755,14 @@ def budget_history(request):
 def goal_json(goal):
     info = budgeting.goal_summary(goal)
     return {
-        "id": goal.pk, "name": goal.name, "target_amount": dec(goal.target_amount),
+        **ident(goal), "id": goal.pk, "name": goal.name, "target_amount": dec(goal.target_amount),
         "target_date": goal.target_date.isoformat() if goal.target_date else None,
         "account": {"id": goal.account_id, "name": goal.account.name} if goal.account_id else None,
         "category": {"id": goal.category_id, "name": goal.category.name} if goal.category_id else None,
         "saved": dec(info["saved"]), "remaining": dec(info["remaining"]), "percent": info["percent"],
         "required_monthly": dec(info["required_monthly"]) if info["required_monthly"] is not None else None,
         "months_left": info["months_left"], "complete": info["complete"], "overdue": info["overdue"],
-        "contributions": [{"id": c.pk, "amount": dec(c.amount), "date": c.date.isoformat(), "note": c.note}
+        "contributions": [{**ident(c), "id": c.pk, "amount": dec(c.amount), "date": c.date.isoformat(), "note": c.note}
                           for c in goal.contributions.all()[:20]],
     }
 
@@ -648,7 +786,8 @@ def goals(request):
 def goal_detail(request, pk):
     goal = owned(Goal, request, pk, goal_queryset(request.user))
     if request.method == "GET":
-        return JsonResponse({"ok": True, "goal": goal_json(goal)})
+        return with_etag(JsonResponse({"ok": True, "goal": goal_json(goal)}), goal)
+    guard(request, goal, lambda: goal_json(goal_queryset(request.user).get(pk=pk)))
     if request.method == "DELETE":
         goal.delete()
         return JsonResponse({"ok": True, "id": pk})
@@ -668,8 +807,8 @@ def goal_contribute(request, pk):
     contribution = form.save(commit=False)
     saved = budgeting.goal_summary(goal)["saved"]
     if saved + contribution.amount < 0:
-        raise ApiError("A goal cannot have a negative amount saved.", 422,
-                       {"amount": ["A goal cannot have a negative amount saved."]})
+        raise ApiError("Uma meta não pode ficar com valor guardado negativo.", 422,
+                       {"amount": ["Uma meta não pode ficar com valor guardado negativo."]})
     contribution.goal = goal
     contribution.save()
     return JsonResponse({"ok": True, "goal": goal_json(goal_queryset(request.user).get(pk=pk))}, status=201)
@@ -681,6 +820,7 @@ def contribution_detail(request, pk):
         item = Contribution.objects.select_related("goal").get(pk=pk, goal__user=request.user)
     except Contribution.DoesNotExist:
         raise Http404 from None
+    guard(request, item)
     item.delete()
     return JsonResponse({"ok": True, "id": pk})
 
@@ -712,7 +852,8 @@ def recurring(request):
 def recurring_detail(request, pk):
     item = owned_recurring(request, pk)
     if request.method == "GET":
-        return JsonResponse({"ok": True, "item": recurring_json(item)})
+        return with_etag(JsonResponse({"ok": True, "item": recurring_json(item)}), item)
+    guard(request, item, lambda: recurring_json(owned_recurring(request, pk)))
     if request.method == "DELETE":
         item.delete()
         return JsonResponse({"ok": True, "id": pk})
@@ -724,8 +865,27 @@ def recurring_detail(request, pk):
 
 
 @api("POST")
+def recurring_match(request, pk):
+    """Answer "is this the same thing?" for an occurrence that looks already typed by hand."""
+    from .models import RecurringMatch
+    item = owned(RecurringTransaction, request, pk)
+    guard(request, item)
+    data = body(request)
+    decision = data.get("decision")
+    if decision not in (RecurringMatch.SAME, RecurringMatch.DIFFERENT):
+        raise ApiError("Responda se é o mesmo lançamento ou não.", 422)
+    slot = _iso_date(data.get("slot"), None)
+    if slot is None:
+        raise ApiError("Data da recorrência inválida.", 422)
+    tx = owned_transaction(request, _int(data.get("transaction")) or 0)
+    services.decide_match(item, slot, tx, decision)
+    return JsonResponse({"ok": True, **after_write(request.user)})
+
+
+@api("POST")
 def recurring_toggle(request, pk):
     item = owned_recurring(request, pk)
+    guard(request, item, lambda: recurring_json(owned_recurring(request, pk)))
     item.active = not item.active
     if item.active:
         # resuming skips occurrences missed while paused
@@ -739,17 +899,29 @@ def recurring_toggle(request, pk):
 
 # --- people: debts and shared bills --------------------------------------------
 
+def entry_json(e):
+    tx = e.transaction
+    return {**ident(e), "id": e.pk, "kind": e.kind, "kind_label": e.get_kind_display(), "amount": dec(e.amount),
+            "description": e.description, "date": e.date.isoformat(),
+            "due_date": e.due_date.isoformat() if e.due_date else None, "planned": e.planned,
+            "account": {"id": e.account_id, "name": e.account.name} if e.account_id else None,
+            "group": str(e.group) if e.group else None,
+            "share": {"amount": dec(tx.amount), "category": tx.category_id} if tx else None}
+
+
 def person_json(p, entries=False):
-    rows = list(p.entries.all())
-    net = sum((e.amount for e in rows), services.ZERO)
-    due = [e.due_date for e in rows if e.due_date and e.kind in ("lent", "borrowed")]
-    data = {"id": p.pk, "name": p.name, "net": dec(net),
+    rows = list(p.entries.select_related("account", "transaction").all())
+    real = [e for e in rows if not e.planned]
+    planned = sorted((e for e in rows if e.planned), key=lambda e: e.date)
+    net = sum((e.amount for e in real), services.ZERO)
+    due = [e.due_date for e in real if e.due_date and e.kind in ("lent", "borrowed")] + [e.date for e in planned]
+    data = {**ident(p), "id": p.pk, "name": p.name, "net": dec(net),
             "direction": "owes_you" if net > 0 else "you_owe" if net < 0 else "settled",
-            "next_due": min(due).isoformat() if due and net != 0 else None}
+            "next_due": min(due).isoformat() if due and (net != 0 or planned) else None,
+            "planned_total": dec(sum((e.amount for e in planned), services.ZERO))}
     if entries:
-        data["entries"] = [{"id": e.pk, "kind": e.kind, "kind_label": e.get_kind_display(), "amount": dec(e.amount),
-                            "description": e.description, "date": e.date.isoformat(),
-                            "due_date": e.due_date.isoformat() if e.due_date else None} for e in rows]
+        data["entries"] = [entry_json(e) for e in real]
+        data["planned"] = [entry_json(e) for e in planned]
     return data
 
 
@@ -761,7 +933,7 @@ def people(request):
             return invalid(form)
         person = form.save()
         return JsonResponse({"ok": True, "person": person_json(person)}, status=201)
-    rows = Person.objects.filter(user=request.user).prefetch_related("entries")
+    rows = Person.objects.filter(user=request.user)
     items = [person_json(p, entries=True) for p in rows]
     owed = sum((Decimal(i["net"]) for i in items if Decimal(i["net"]) > 0), services.ZERO)
     owe = sum((-Decimal(i["net"]) for i in items if Decimal(i["net"]) < 0), services.ZERO)
@@ -771,7 +943,11 @@ def people(request):
 @api("POST", "DELETE")
 def person_detail(request, pk):
     person = owned(Person, request, pk)
+    guard(request, person, lambda: person_json(Person.objects.get(pk=pk), entries=True))
     if request.method == "DELETE":
+        if person.entries.filter(account__isnull=False, planned=False).exists():
+            raise ApiError("Esta pessoa tem lançamentos que movimentaram suas contas. Exclua esses lançamentos antes "
+                           "(o dinheiro volta para a conta) para poder excluir a pessoa.", 409)
         person.delete()
         return JsonResponse({"ok": True, "id": pk})
     form = PersonForm(body(request), user=request.user, instance=person)
@@ -780,26 +956,87 @@ def person_detail(request, pk):
     return JsonResponse({"ok": True, "person": person_json(form.save())})
 
 
+def _person_reply(request, person, status=200):
+    person = Person.objects.get(pk=person.pk)
+    return JsonResponse({"ok": True, "person": person_json(person, entries=True), **after_write(request.user)}, status=status)
+
+
 @api("POST")
 def person_entry(request, pk):
     person = owned(Person, request, pk)
-    form = LedgerEntryForm(body(request))
+    form = LedgerEntryForm(body(request), user=request.user)
     if not form.is_valid():
         return invalid(form)
-    entry = form.build(person)
-    entry.save()
-    person = Person.objects.prefetch_related("entries").get(pk=pk)
-    return JsonResponse({"ok": True, "person": person_json(person, entries=True)}, status=201)
+    debts.create_entry(request.user, person, form.cleaned_data)
+    return _person_reply(request, person, 201)
 
 
-@api("DELETE")
-def entry_detail(request, pk):
+def _owned_entry(request, pk):
     try:
-        entry = LedgerEntry.objects.get(pk=pk, person__user=request.user)
+        return LedgerEntry.objects.select_related("person", "account", "transaction").get(pk=pk, person__user=request.user)
     except LedgerEntry.DoesNotExist:
         raise Http404 from None
-    entry.delete()
-    return JsonResponse({"ok": True, "id": pk})
+
+
+@api("POST", "DELETE")
+def entry_detail(request, pk):
+    entry = _owned_entry(request, pk)
+    person = entry.person
+    guard(request, entry, lambda: entry_json(_owned_entry(request, pk)))
+    if request.method == "DELETE":
+        debts.delete_entry(request.user, entry)
+        return _person_reply(request, person)
+    form = LedgerEntryForm(body(request), user=request.user, kind=entry.kind)
+    if not form.is_valid():
+        return invalid(form)
+    debts.update_entry(request.user, entry, form.cleaned_data)
+    return _person_reply(request, person)
+
+
+@api("POST")
+def entry_confirm(request, pk):
+    entry = _owned_entry(request, pk)
+    guard(request, entry, lambda: entry_json(_owned_entry(request, pk)))
+    data = body(request)
+    account = None
+    if data.get("account"):
+        account = owned(Account, request, _int(data.get("account")) or 0)
+    amount = None
+    if data.get("amount") not in (None, ""):
+        try:
+            amount = Decimal(str(data["amount"])).quantize(Decimal("0.01"))
+        except (ArithmeticError, ValueError):
+            raise reassign_error("amount", "Informe um valor válido.") from None
+        if amount <= 0:
+            raise reassign_error("amount", "Informe um valor maior que zero.")
+    debts.confirm_entry(request.user, entry, account=account, date=_iso_date(data.get("date"), None), amount=amount)
+    return _person_reply(request, entry.person)
+
+
+@api("POST")
+def person_settle(request, pk):
+    person = owned(Person, request, pk)
+    data = body(request)
+    account = owned(Account, request, _int(data.get("account")) or 0) if data.get("account") else None
+    debts.settle(request.user, person, account=account, date=_iso_date(data.get("date"), None))
+    return _person_reply(request, person)
+
+
+@api("GET")
+def person_summary(request, pk):
+    person = owned(Person, request, pk)
+    return JsonResponse({"ok": True, "text": debts.summary_text(person, services.get_profile(request.user))})
+
+
+@api("POST")
+def people_split(request):
+    form = SplitAmongForm(body(request), user=request.user)
+    if not form.is_valid():
+        return invalid(form)
+    d = form.cleaned_data
+    debts.split_among(request.user, d["people"], d["total"], d["my_share"], d.get("date") or timezone.localdate(),
+                      account=d.get("account"), category=d.get("category"), description=d.get("description", ""))
+    return JsonResponse({"ok": True, **after_write(request.user)}, status=201)
 
 
 # --- reports, search, status -------------------------------------------------
@@ -823,7 +1060,7 @@ def summary(request):
     month = services.parse_month(request.GET.get("month"))
     data = stats.summary(request.user, month)
     profile = services.get_profile(request.user)
-    return JsonResponse({"ok": True, **_jsonable(data), "overdrawn": data["balance"] < 0,
+    return JsonResponse({"ok": True, **_jsonable(data), "overdrawn": data["money_today"] < 0,
                          "allow_negative": services.allows_negative(request.user),
                          "currency": profile.currency_code,
                          "secondary": {"code": profile.secondary_currency_code,
@@ -836,7 +1073,7 @@ def analytics(request):
     start = _iso_date(request.GET.get("start"), services.month_start(today))
     end = _iso_date(request.GET.get("end"), today)
     if start < datetime.date(2000, 1, 1) or end > today + datetime.timedelta(days=366):
-        raise ApiError("Date range is out of bounds.", 422)
+        raise ApiError("O período está fora dos limites permitidos.", 422)
     category = _int(request.GET.get("category"))
     tag = _int(request.GET.get("tag"))
     if category and not Category.objects.filter(pk=category, user=request.user).exists():
@@ -853,6 +1090,44 @@ def insights(request):
     return JsonResponse({"ok": True, **_jsonable(data), "secondary": {
         "code": profile.secondary_currency_code,
         "rate": str(profile.secondary_rate) if profile.secondary_rate else None}})
+
+
+def quick_json(p):
+    cat = p["category"]
+    account = p["account"]
+    return {
+        "name": p["name"], "amount": dec(p["amount"]), "kind": p["kind"], "date": p["date"].isoformat(),
+        "category": {"id": cat.pk, "name": cat.full_name} if cat else None,
+        "new_category": p["new_category"],
+        "suggestion": {"id": p["suggestion"].pk, "name": p["suggestion"].full_name} if p.get("suggestion") else None,
+        "account": {"id": account.pk, "name": account.name, "credit": account.is_credit, "typed": p["account_typed"]},
+        "notes": p["notes"],
+    }
+
+
+@api("POST")
+def quick_entry(request):
+    """One line of text -> preview; with "save": true the transaction is created (see app/quick.py)."""
+    data = body(request)
+    text = str(data.get("text") or "")[:160]
+    try:
+        parsed = quick.parse(request.user, text, category_id=_int(data.get("category")))
+    except ValidationError as exc:
+        raise reassign_error("text", exc.messages[0]) from None
+    if not data.get("save"):
+        return JsonResponse({"ok": True, "preview": quick_json(parsed)})
+    tx = quick.save(request.user, parsed)
+    return JsonResponse({"ok": True, "transaction": tx_json(owned_transaction(request, tx.pk)),
+                         "preview": quick_json(parsed), **after_write(request.user)}, status=201)
+
+
+@api("GET")
+def plan(request):
+    """The month plan: what happened, what is still to come, card invoices and the bank projection."""
+    services.apply_due(request.user)
+    month = services.parse_month(request.GET.get("month"))
+    data = planning.month_plan(request.user, month)
+    return JsonResponse({"ok": True, **_jsonable(data)})
 
 
 @api("GET")
@@ -875,24 +1150,24 @@ def search(request):
         list(Tag.objects.filter(user=user).values("id", "name")), timezone.localdate())
     structured = {k for k in params if k != "q"}
     if structured:
-        groups.append({"type": "Filter transactions", "items": [{
-            "title": "Show " + ", ".join(parts), "subtitle": "Open these filters on the Transactions page",
+        groups.append({"type": "Filtrar transações", "items": [{
+            "title": "Mostrar " + ", ".join(parts), "subtitle": "Abrir estes filtros na página Transações",
             "url": "/transactions/?" + urlencode(params)}]})
     txs = (Transaction.objects.filter(user=user).filter(Q(name__icontains=q) | Q(payee__icontains=q) | Q(note__icontains=q))
            .select_related("category")[:5])
     if txs:
-        groups.append({"type": "Transactions", "items": [{
-            "title": t.name, "subtitle": f"{t.date:%Y-%m-%d} · {t.category.name} · "
+        groups.append({"type": "Transações", "items": [{
+            "title": t.name, "subtitle": f"{t.date:%d/%m/%Y} · {t.category.name} · "
             f"{'+' if t.kind == 'income' else '-'}{format_money(t.amount, profile)}",
             "url": "/transactions/?" + urlencode({"q": t.name})} for t in txs]})
     payees = (Transaction.objects.filter(user=user, payee__icontains=q).exclude(payee="")
               .values("payee").annotate(c=Count("id")).order_by("-c")[:5])
     if payees:
-        groups.append({"type": "Payees", "items": [{"title": p["payee"], "subtitle": f"{p['c']} transaction(s)",
+        groups.append({"type": "Favorecidos", "items": [{"title": p["payee"], "subtitle": f"{p['c']} transação(ões)",
                                                     "url": "/transactions/?" + urlencode({"payee": p["payee"]})} for p in payees]})
     cats = Category.objects.filter(user=user, name__icontains=q)[:5]
     if cats:
-        groups.append({"type": "Categories", "items": [{"title": c.name, "subtitle": c.get_kind_display(),
+        groups.append({"type": "Categorias", "items": [{"title": c.name, "subtitle": c.get_kind_display(),
                                                         "url": f"/transactions/?category={c.pk}"} for c in cats]})
     tag_rows = Tag.objects.filter(user=user, name__icontains=q)[:5]
     if tag_rows:
@@ -900,11 +1175,11 @@ def search(request):
                                                  for t in tag_rows]})
     acct_rows = Account.objects.filter(user=user, name__icontains=q)[:5]
     if acct_rows:
-        groups.append({"type": "Accounts", "items": [{"title": a.name, "subtitle": a.get_type_display(),
+        groups.append({"type": "Contas", "items": [{"title": a.name, "subtitle": a.get_type_display(),
                                                       "url": f"/transactions/?account={a.pk}"} for a in acct_rows]})
     goal_rows = Goal.objects.filter(user=user, name__icontains=q)[:5]
     if goal_rows:
-        groups.append({"type": "Goals", "items": [{"title": g.name, "subtitle": f"Target {format_money(g.target_amount, profile)}",
+        groups.append({"type": "Metas", "items": [{"title": g.name, "subtitle": f"Objetivo {format_money(g.target_amount, profile)}",
                                                    "url": "/goals/"} for g in goal_rows]})
     return JsonResponse({"ok": True, "q": q, "groups": groups})
 
@@ -912,11 +1187,11 @@ def search(request):
 def onboarding_state(user):
     has_custom = Category.objects.filter(user=user).exclude(name__in=[c[0] for c in services.DEFAULT_CATEGORIES]).exists()
     steps = [
-        {"id": "category", "label": "Add a category of your own", "done": has_custom, "url": "/categories/"},
-        {"id": "transaction", "label": "Record your first transaction", "done": Transaction.objects.filter(user=user).exists(),
+        {"id": "category", "label": "Crie uma categoria sua", "done": has_custom, "url": "/categories/"},
+        {"id": "transaction", "label": "Registre sua primeira transação", "done": Transaction.objects.filter(user=user).exists(),
          "url": "/transactions/#new"},
-        {"id": "budget", "label": "Set a monthly budget", "done": Budget.objects.filter(user=user).exists(), "url": "/budgets/"},
-        {"id": "goal", "label": "Create a savings goal", "done": Goal.objects.filter(user=user).exists(), "url": "/goals/"},
+        {"id": "budget", "label": "Defina um orçamento mensal", "done": Budget.objects.filter(user=user).exists(), "url": "/budgets/"},
+        {"id": "goal", "label": "Crie uma meta de poupança", "done": Goal.objects.filter(user=user).exists(), "url": "/goals/"},
     ]
     profile = services.get_profile(user)
     complete = all(s["done"] for s in steps)
@@ -937,7 +1212,7 @@ def onboarding(request):
 @api("POST")
 def sample_data(request):
     if Transaction.all_objects.filter(user=request.user).exists():
-        raise ApiError("Sample data can only be added to an empty account.", 409)
+        raise ApiError("Dados de exemplo só podem ser adicionados a uma conta vazia.", 409)
     demo.seed_user(request.user)
     return JsonResponse({"ok": True, **onboarding_state(request.user)}, status=201)
 

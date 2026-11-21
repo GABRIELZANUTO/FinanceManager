@@ -1,39 +1,43 @@
 {% extends "app/base.html" %}
 {% load static %}
-{% block title %}Recurring{% endblock %}
-{% block heading %}Recurring transactions{% endblock %}
-{% block subheading %}<p class="sub">Created automatically on their due date. Paused items are skipped.</p>{% endblock %}
-{% block actions %}<button class="btn btn-primary" type="button" id="new-recurring">{% icon "plus" %}New recurring item</button>{% endblock %}
+{% block title %}Recorrências{% endblock %}
+{% block heading %}Transações recorrentes{% endblock %}
+{% block subheading %}<p class="sub">Lançadas automaticamente na data de vencimento. Itens pausados são ignorados.</p>{% endblock %}
+{% block actions %}<button class="btn btn-primary" type="button" id="new-recurring">{% icon "plus" %}Nova recorrência</button>{% endblock %}
 {% block content %}
-<div class="card"><div id="recurring-list" class="loading">Loading...</div></div>
+<div class="card"><div id="recurring-list" class="loading">Carregando...</div></div>
 
 <dialog id="rec-dialog" aria-labelledby="rec-title" data-today="{{ today|date:'Y-m-d' }}">
   <form id="rec-form" method="dialog" novalidate>
-    <div class="dialog-head"><h2 id="rec-title">New recurring item</h2>
-      <button class="icon-btn" type="button" data-close aria-label="Close">{% icon "x" %}</button></div>
+    <div class="dialog-head"><h2 id="rec-title">Nova recorrência</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Fechar">{% icon "x" %}</button></div>
     <div class="dialog-body">
       <div class="form-error" data-form-error role="alert" hidden></div>
-      <div class="field"><div class="segmented" role="radiogroup" aria-label="Type">
-        <label><input type="radio" name="kind" value="expense" checked><span>Expense</span></label>
-        <label><input type="radio" name="kind" value="income"><span>Income</span></label></div>
+      <div class="field"><div class="segmented" role="radiogroup" aria-label="Tipo">
+        <label><input type="radio" name="kind" value="expense" checked><span>Despesa</span></label>
+        <label><input type="radio" name="kind" value="income"><span>Receita</span></label></div>
         <p class="field-error" data-error-for="kind"></p></div>
       <div class="form-grid">
-        <div class="field wide"><label for="rec-name">Description</label><input id="rec-name" name="name" type="text" maxlength="120" required autocomplete="off"><p class="field-error" data-error-for="name"></p></div>
-        <div class="field"><label for="rec-amount">Amount</label><input id="rec-amount" name="amount" type="text" data-money inputmode="decimal" required><p class="field-error" data-error-for="amount"></p></div>
-        <div class="field"><label for="rec-frequency">Repeats</label><select id="rec-frequency" name="frequency"><option value="monthly">Every month</option><option value="weekly">Every week</option></select><p class="field-error" data-error-for="frequency"></p></div>
-        <div class="field"><label for="rec-start">First date</label><input id="rec-start" name="start_date" type="date" required><p class="field-error" data-error-for="start_date"></p></div>
-        <div class="field"><label for="rec-end">Last date (optional)</label><input id="rec-end" name="end_date" type="date"><p class="field-error" data-error-for="end_date"></p></div>
-        <div class="field wide"><label for="rec-category">Category</label>
-          <select id="rec-category" name="category" required><option value="">Choose a category</option>{% for c in shell_categories %}<option value="{{ c.id }}" data-kind="{{ c.kind }}">{{ c.full_name }}</option>{% endfor %}</select>
+        <div class="field wide"><label for="rec-name">Descrição</label><input id="rec-name" name="name" type="text" maxlength="120" required autocomplete="off"><p class="field-error" data-error-for="name"></p></div>
+        <div class="field wide"><label class="check"><input type="checkbox" name="parcelada" id="rec-parcelada"> Compra parcelada (uma parcela por mês, como as do cartão)</label></div>
+        <div class="field" data-installment hidden><label for="rec-total">Número de parcelas</label><input id="rec-total" name="installment_total" type="number" min="2" max="72" step="1" inputmode="numeric"><p class="field-error" data-error-for="installment_total"></p></div>
+        <div class="field" data-installment hidden><label for="rec-first">A primeira data é a parcela nº</label><input id="rec-first" name="installment_first" type="number" min="1" max="72" step="1" inputmode="numeric" value="1"><p class="field-error" data-error-for="installment_first"></p></div>
+        <p class="help wide" data-installment hidden>Em Valor, informe o valor de cada parcela. A última data é calculada sozinha. Quando a fatura do cartão chegar, as parcelas lançadas aqui são reconhecidas e não entram de novo.</p>
+        <div class="field"><label for="rec-amount">Valor</label><input id="rec-amount" name="amount" type="text" data-money inputmode="decimal" required><p class="field-error" data-error-for="amount"></p></div>
+        <div class="field" data-not-installment><label for="rec-frequency">Repete</label><select id="rec-frequency" name="frequency"><option value="monthly">Todo mês</option><option value="weekly">Toda semana</option></select><p class="field-error" data-error-for="frequency"></p></div>
+        <div class="field"><label for="rec-start">Primeira data</label><input id="rec-start" name="start_date" type="date" required><p class="field-error" data-error-for="start_date"></p></div>
+        <div class="field" data-not-installment><label for="rec-end">Última data (opcional)</label><input id="rec-end" name="end_date" type="date"><p class="field-error" data-error-for="end_date"></p></div>
+        <div class="field wide"><label for="rec-category">Categoria</label>
+          <select id="rec-category" name="category" required><option value="">Escolha uma categoria</option>{% for c in shell_categories %}<option value="{{ c.id }}" data-kind="{{ c.kind }}">{{ c.full_name }}</option>{% endfor %}</select>
           <p class="field-error" data-error-for="category"></p></div>
-        <div class="field"><label for="rec-account">Account</label><select id="rec-account" name="account"><option value="">Default account</option>{% for a in shell_accounts %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select><p class="field-error" data-error-for="account"></p></div>
-        <div class="field"><label for="rec-payee">Payee (optional)</label><input id="rec-payee" name="payee" type="text" maxlength="80"><p class="field-error" data-error-for="payee"></p></div>
-        <div class="field wide"><label for="rec-note">Note (optional)</label><textarea id="rec-note" name="note" rows="2" maxlength="1000"></textarea><p class="field-error" data-error-for="note"></p>
-          <p class="help">A first date in the past creates the missed transactions right away.</p></div>
+        <div class="field"><label for="rec-account">Conta</label><select id="rec-account" name="account">{% for a in shell_accounts %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select><p class="field-error" data-error-for="account"></p></div>
+        <div class="field"><label for="rec-payee">Favorecido (opcional)</label><input id="rec-payee" name="payee" type="text" maxlength="80"><p class="field-error" data-error-for="payee"></p></div>
+        <div class="field wide"><label for="rec-note">Observação (opcional)</label><textarea id="rec-note" name="note" rows="2" maxlength="1000"></textarea><p class="field-error" data-error-for="note"></p>
+          <p class="help">Uma primeira data no passado cria na hora as transações que ficaram para trás.</p></div>
       </div>
     </div>
-    <div class="dialog-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn btn-primary" type="submit" data-submit>Save</button></div>
+    <div class="dialog-foot"><button class="btn" type="button" data-close>Cancelar</button><button class="btn btn-primary" type="submit" data-submit>Salvar</button></div>
   </form>
 </dialog>
 {% endblock %}
-{% block scripts %}<script type="module" src="{% static 'app/js/recurring.js' %}"></script>{% endblock %}
+{% block scripts %}<script type="module" src="{% static 'app/js/recurring.js' %}?v={{ asset_version }}"></script>{% endblock %}

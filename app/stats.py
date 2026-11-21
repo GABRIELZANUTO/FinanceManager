@@ -4,9 +4,10 @@ from collections import defaultdict
 
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncMonth
+from django.utils import timezone
 
 from . import budgeting, services
-from .models import Category, Goal, Transaction
+from .models import Account, Category, Goal, Transaction
 from .services import ZERO, add_months, month_end, month_start, q2
 
 MAX_RANGE_DAYS = 731
@@ -19,19 +20,73 @@ def pct_change(current, previous):
     return round(float((current - previous) / previous * 100), 1)
 
 
-def month_totals(user, month):
-    income, expense = services.income_expense(user, month, month_end(month))
+def month_totals(user, month, until=None):
+    last = month_end(month) if until is None else min(month_end(month), until)
+    income, expense = services.income_expense(user, month, last)
     net = income - expense
     rate = round(float(net / income * 100), 1) if income > 0 else None
     return {"income": income, "expense": expense, "net": net, "savings_rate": rate}
 
 
-def summary(user, month):
-    current = month_totals(user, month)
-    previous = month_totals(user, add_months(month, -1))
+def money_and_card_debt(user, until):
+    """Money in banks, cash and wallets apart from what is owed on credit cards (both up to ``until``)."""
+    balances = services.account_balances(user, until=until)
+    money = debt = ZERO
+    for account in Account.objects.filter(user=user):
+        value = balances.get(account.pk, ZERO)
+        if account.is_credit:
+            debt += max(ZERO, -value)
+        else:
+            money += value
+    return {"money": q2(money), "card_debt": q2(debt)}
+
+
+def summary(user, month, today=None):
+    """Dashboard totals. Entries count up to the end of the current month (a salary or card
+    purchases dated later this month included); anything dated in later months waits."""
+    today = today or timezone.localdate()
+    until = month_end(today)
+    current = month_totals(user, month, until=until)
+    previous = month_totals(user, add_months(month, -1), until=until)
+    now = money_and_card_debt(user, today)
+    end = {"money": now["money"], "card_debt": now["card_debt"], "estimate": ZERO,
+           "balance": services.balance_for(user, before=until + datetime.timedelta(days=1))}
+    if month == month_start(today):
+        # The current month as the Analytics plan sees it: recurring items not posted yet count too,
+        # so the dashboard and the plan show the same income, expenses and end-of-month balance.
+        from . import planning
+        plan = planning.month_plan(user, month, today)
+        for row in plan["rows"]:
+            if row["status"] == "done":
+                continue
+            signed = row["amount"] if row["kind"] == "income" else -row["amount"]
+            if row["credit"]:
+                end["card_debt"] -= signed
+            else:
+                end["money"] += signed
+        for row in plan["debts"]:   # installments to receive or pay this month (debts module)
+            if row["planned"] and row["effect"]:
+                if row["credit"]:
+                    end["card_debt"] -= row["effect"]
+                else:
+                    end["money"] += row["effect"]
+        end["card_debt"] = max(ZERO, end["card_debt"])
+        if plan["bank"]:
+            # the same "Nos bancos no fim do mês" as the plan (invoice payments and transfers included)
+            end["money"] = plan["bank"]["end"]
+        end["estimate"] = plan["totals"]["estimate"]
+        end["balance"] = plan["balance"]["end"]
+        income, expense = plan["totals"]["income"], plan["totals"]["expense"]
+        net = income - expense
+        current = {"income": income, "expense": expense, "net": net,
+                   "savings_rate": round(float(net / income * 100), 1) if income > 0 else None}
     return {
         "month": month.strftime("%Y-%m"),
-        "balance": services.balance_for(user),
+        "until": until,
+        # Money as of today (what is really there); "money" and "balance" are where the month ends.
+        "money_today": now["money"],
+        "money": q2(end["money"]), "card_debt": q2(end["card_debt"]), "estimate": q2(end["estimate"]),
+        "balance": q2(end["balance"]),
         **current,
         "previous": previous,
         "changes": {
@@ -112,7 +167,7 @@ def analytics(user, start, end, category=None, tag=None, today=None):
     stacked_series = [series_for(cid) for cid in top_ids]
     other = [q2(month_total.get(m, ZERO) - sum((s["values"][i] for s in stacked_series), ZERO)) for i, m in enumerate(months)]
     if any(other):
-        stacked_series.append({"id": None, "name": "Other", "color": "gray", "values": other})
+        stacked_series.append({"id": None, "name": "Outros", "color": "gray", "values": other})
     stacked = {"months": [m.strftime("%Y-%m") for m in months], "series": stacked_series}
 
     opening = services.balance_for(user, before=start)
@@ -140,7 +195,7 @@ def analytics(user, start, end, category=None, tag=None, today=None):
         weekday_days[d.weekday()] += 1
     weekday = [{"day": n, "total": q2(weekday_totals[i]),
                 "average": q2(weekday_totals[i] / weekday_days[i]) if weekday_days[i] else ZERO}
-               for i, n in enumerate(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"))]
+               for i, n in enumerate(("seg", "ter", "qua", "qui", "sex", "sáb", "dom"))]
 
     # heatmap: last 26 weeks ending at ``end``, weeks start on Monday
     heat_end = end
@@ -171,7 +226,7 @@ def analytics(user, start, end, category=None, tag=None, today=None):
     cumulative_spend = {"month": cm.strftime("%Y-%m"), "limit": limit, "days": cumulative}
 
     budget_vs_actual = [
-        {"name": i["category"]["name"] if i["category"] else "Overall", "color": i["category"]["color"] if i["category"] else "blue",
+        {"name": i["category"]["name"] if i["category"] else "Geral", "color": i["category"]["color"] if i["category"] else "blue",
          "limit": i["available"], "spent": i["spent"]} for i in budget_data["items"]]
 
     payees = [{"name": r["payee"], "total": q2(r["t"]), "count": r["c"]} for r in

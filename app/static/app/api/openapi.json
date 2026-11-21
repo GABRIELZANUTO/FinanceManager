@@ -1,0 +1,1617 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "Finanças Pessoais",
+  "version": "1",
+  "description": "Envie a chave no cabeçalho Authorization: Bearer fp_... Erros: {\"ok\": false, \"message\", \"errors\", \"code\"}."
+ },
+ "components": {
+  "securitySchemes": {
+   "chave": {
+    "type": "http",
+    "scheme": "bearer"
+   }
+  }
+ },
+ "security": [
+  {
+   "chave": []
+  }
+ ],
+ "paths": {
+  "/api/v1/auth/token/": {
+   "post": {
+    "operationId": "auth_token_post",
+    "summary": "Gera uma chave de acesso com usuário e senha",
+    "security": [],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/auth/register/": {
+   "post": {
+    "operationId": "auth_register_post",
+    "summary": "Cria uma conta e já devolve uma chave de acesso",
+    "security": [],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/auth/me/": {
+   "get": {
+    "operationId": "auth_me_get",
+    "summary": "Usuário, plano e dados da chave usada",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/auth/revoke/": {
+   "post": {
+    "operationId": "auth_revoke_post",
+    "summary": "Revoga a chave usada na requisição",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/auth/tokens/": {
+   "get": {
+    "operationId": "auth_tokens_get",
+    "summary": "Lista as chaves ativas do usuário",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "auth_tokens_post",
+    "summary": "Lista as chaves ativas do usuário",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/auth/tokens/{pk}/": {
+   "delete": {
+    "operationId": "auth_token_detail_delete",
+    "summary": "Revoga uma chave do usuário",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/openapi.json": {
+   "get": {
+    "operationId": "openapi_get",
+    "summary": "Este documento",
+    "security": [],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/docs/": {
+   "get": {
+    "operationId": "docs_get",
+    "summary": "Documentação legível desta API",
+    "security": [],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/summary/": {
+   "get": {
+    "operationId": "summary_get",
+    "summary": "Resumo do mês: receitas, despesas, saldo e gráficos",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/analytics/": {
+   "get": {
+    "operationId": "analytics_get",
+    "summary": "Análises de um período",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/plan/": {
+   "get": {
+    "operationId": "plan_get",
+    "summary": "Planejamento do mês: o que aconteceu e o que ainda vem",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/quick/": {
+   "post": {
+    "operationId": "quick_post",
+    "summary": "Lançamento rápido: interpreta uma linha de texto e, com save, grava",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/notifications/": {
+   "get": {
+    "operationId": "notifications_get",
+    "summary": "Avisos de orçamento, vencimentos e confirmações pendentes",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/search/": {
+   "get": {
+    "operationId": "search_get",
+    "summary": "Busca em transações, categorias, contas e pessoas",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/transactions/": {
+   "get": {
+    "operationId": "transactions_get",
+    "summary": "Lista (com filtros) e cria transações",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "transactions_post",
+    "summary": "Lista (com filtros) e cria transações",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/transactions/bulk/": {
+   "post": {
+    "operationId": "transactions_bulk_post",
+    "summary": "Ação em lote sobre várias transações",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/transactions/split/": {
+   "post": {
+    "operationId": "transaction_split_post",
+    "summary": "Divide uma transação em várias categorias",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/transactions/{pk}/": {
+   "delete": {
+    "operationId": "transaction_delete",
+    "summary": "Lê, altera ou manda para a lixeira uma transação",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "get": {
+    "operationId": "transaction_get",
+    "summary": "Lê, altera ou manda para a lixeira uma transação",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "transaction_post",
+    "summary": "Lê, altera ou manda para a lixeira uma transação",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/transactions/{pk}/restore/": {
+   "post": {
+    "operationId": "transaction_restore_post",
+    "summary": "Tira uma transação da lixeira",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/transactions/{pk}/history/": {
+   "get": {
+    "operationId": "transaction_history_get",
+    "summary": "Histórico de alterações de uma transação",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/activity/": {
+   "get": {
+    "operationId": "activity_get",
+    "summary": "Últimas alterações em transações",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/trash/": {
+   "get": {
+    "operationId": "trash_get",
+    "summary": "Transações na lixeira",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/trash/empty/": {
+   "post": {
+    "operationId": "trash_empty_post",
+    "summary": "Esvazia a lixeira",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/trash/{pk}/": {
+   "delete": {
+    "operationId": "trash_item_delete",
+    "summary": "Apaga de vez uma transação da lixeira",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/reconcile/": {
+   "get": {
+    "operationId": "reconcile_get",
+    "summary": "Saldo conciliado de uma conta",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/insights/": {
+   "get": {
+    "operationId": "insights_get",
+    "summary": "Observações sobre os gastos",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/people/": {
+   "get": {
+    "operationId": "people_get",
+    "summary": "Lista e cria pessoas (dívidas e contas divididas)",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "people_post",
+    "summary": "Lista e cria pessoas (dívidas e contas divididas)",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/people/{pk}/": {
+   "delete": {
+    "operationId": "person_delete",
+    "summary": "Lê, renomeia ou apaga uma pessoa",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "person_post",
+    "summary": "Lê, renomeia ou apaga uma pessoa",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/people/{pk}/entries/": {
+   "post": {
+    "operationId": "person_entry_post",
+    "summary": "Registra um lançamento com uma pessoa",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/entries/{pk}/": {
+   "delete": {
+    "operationId": "entry_delete",
+    "summary": "Altera ou apaga um lançamento de dívida",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "entry_post",
+    "summary": "Altera ou apaga um lançamento de dívida",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/entries/{pk}/confirm/": {
+   "post": {
+    "operationId": "entry_confirm_post",
+    "summary": "Confirma uma parcela prevista",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/people/{pk}/settle/": {
+   "post": {
+    "operationId": "person_settle_post",
+    "summary": "Acerta as contas com uma pessoa",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/people/{pk}/summary/": {
+   "get": {
+    "operationId": "person_summary_get",
+    "summary": "Resumo em texto para mandar à pessoa",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/people/split/": {
+   "post": {
+    "operationId": "people_split_post",
+    "summary": "Divide uma conta entre várias pessoas",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/categories/": {
+   "get": {
+    "operationId": "categories_get",
+    "summary": "Lista e cria categorias",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "categories_post",
+    "summary": "Lista e cria categorias",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/categories/{pk}/": {
+   "delete": {
+    "operationId": "category_delete",
+    "summary": "Altera ou apaga (ou mescla) uma categoria",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "get": {
+    "operationId": "category_get",
+    "summary": "Altera ou apaga (ou mescla) uma categoria",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "category_post",
+    "summary": "Altera ou apaga (ou mescla) uma categoria",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/accounts/": {
+   "get": {
+    "operationId": "accounts_get",
+    "summary": "Lista e cria contas",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "accounts_post",
+    "summary": "Lista e cria contas",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/accounts/{pk}/": {
+   "delete": {
+    "operationId": "account_delete",
+    "summary": "Altera ou apaga uma conta",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "get": {
+    "operationId": "account_get",
+    "summary": "Altera ou apaga uma conta",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "account_post",
+    "summary": "Altera ou apaga uma conta",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/transfers/": {
+   "get": {
+    "operationId": "transfers_get",
+    "summary": "Lista e cria transferências entre contas",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "transfers_post",
+    "summary": "Lista e cria transferências entre contas",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/transfers/{pk}/": {
+   "delete": {
+    "operationId": "transfer_delete",
+    "summary": "Apaga uma transferência",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/tags/": {
+   "get": {
+    "operationId": "tags_get",
+    "summary": "Lista e cria tags",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/tags/{pk}/": {
+   "delete": {
+    "operationId": "tag_delete",
+    "summary": "Renomeia ou apaga uma tag",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "tag_post",
+    "summary": "Renomeia ou apaga uma tag",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/rules/": {
+   "get": {
+    "operationId": "rules_get",
+    "summary": "Lista e cria regras de categorização",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "rules_post",
+    "summary": "Lista e cria regras de categorização",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/rules/suggest/": {
+   "get": {
+    "operationId": "rule_suggest_get",
+    "summary": "Sugere a categoria para um texto",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/rules/{pk}/": {
+   "delete": {
+    "operationId": "rule_delete",
+    "summary": "Altera ou apaga uma regra",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "rule_post",
+    "summary": "Altera ou apaga uma regra",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/views/": {
+   "get": {
+    "operationId": "views_get",
+    "summary": "Lista e cria filtros salvos",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "views_post",
+    "summary": "Lista e cria filtros salvos",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/views/{pk}/": {
+   "delete": {
+    "operationId": "view_delete",
+    "summary": "Altera ou apaga um filtro salvo",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/budgets/": {
+   "get": {
+    "operationId": "budgets_get",
+    "summary": "Orçamentos do mês e criação",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "budgets_post",
+    "summary": "Orçamentos do mês e criação",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/budgets/copy/": {
+   "post": {
+    "operationId": "budget_copy_post",
+    "summary": "Copia os orçamentos de um mês para outro",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/budgets/history/": {
+   "get": {
+    "operationId": "budget_history_get",
+    "summary": "Histórico dos orçamentos",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/budgets/{pk}/": {
+   "delete": {
+    "operationId": "budget_delete",
+    "summary": "Altera ou apaga um orçamento",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/goals/": {
+   "get": {
+    "operationId": "goals_get",
+    "summary": "Lista e cria metas",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "goals_post",
+    "summary": "Lista e cria metas",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/goals/{pk}/": {
+   "delete": {
+    "operationId": "goal_delete",
+    "summary": "Altera ou apaga uma meta",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "get": {
+    "operationId": "goal_get",
+    "summary": "Altera ou apaga uma meta",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "goal_post",
+    "summary": "Altera ou apaga uma meta",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/goals/{pk}/contributions/": {
+   "post": {
+    "operationId": "goal_contribute_post",
+    "summary": "Registra um aporte numa meta",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/contributions/{pk}/": {
+   "delete": {
+    "operationId": "contribution_delete",
+    "summary": "Apaga um aporte",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/recurring/": {
+   "get": {
+    "operationId": "recurring_get",
+    "summary": "Lista e cria recorrências",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "recurring_post",
+    "summary": "Lista e cria recorrências",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/recurring/{pk}/": {
+   "delete": {
+    "operationId": "recurring_item_delete",
+    "summary": "Altera ou apaga uma recorrência",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "get": {
+    "operationId": "recurring_item_get",
+    "summary": "Altera ou apaga uma recorrência",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   },
+   "post": {
+    "operationId": "recurring_item_post",
+    "summary": "Altera ou apaga uma recorrência",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/recurring/{pk}/toggle/": {
+   "post": {
+    "operationId": "recurring_toggle_post",
+    "summary": "Pausa ou retoma uma recorrência",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/recurring/{pk}/match/": {
+   "post": {
+    "operationId": "recurring_match_post",
+    "summary": "Confirma se um lançamento é a ocorrência da recorrência",
+    "parameters": [
+     {
+      "name": "pk",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/sync/push/": {
+   "post": {
+    "operationId": "sync_push_post",
+    "summary": "Sincronização: envia as alterações do aparelho (até 200 por vez)",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/sync/pull/": {
+   "get": {
+    "operationId": "sync_pull_get",
+    "summary": "Sincronização: o que mudou desde o cursor",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/sync/snapshot/": {
+   "get": {
+    "operationId": "sync_snapshot_get",
+    "summary": "Sincronização: download completo, em páginas",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/sync/object/": {
+   "get": {
+    "operationId": "sync_object_get",
+    "summary": "Sincronização: um registro pelo uid",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/me/wipe/": {
+   "post": {
+    "operationId": "me_wipe_post",
+    "summary": "Apaga todos os dados da conta (pede a senha)",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  },
+  "/api/v1/me/": {
+   "delete": {
+    "operationId": "me_delete_delete",
+    "summary": "Exclui a conta online e todos os dados (pede a senha)",
+    "responses": {
+     "200": {
+      "description": "ok: true e os dados"
+     },
+     "4XX": {
+      "description": "ok: false, message, errors e code"
+     }
+    }
+   }
+  }
+ }
+}

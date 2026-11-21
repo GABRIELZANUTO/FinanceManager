@@ -92,11 +92,45 @@ def pace(available, spent, month, today):
     return projected, q2(max(ZERO, available - spent) / left)
 
 
+def planned_by_category(user, month, after, last):
+    """({category_id: planned including sub-categories}, total) still to come in the month: entries
+    dated after ``after`` and recurring items not posted yet (card items in the month they are booked)."""
+    from . import planning
+
+    rollup = category_rollup(user)
+    planned = defaultdict(lambda: ZERO)
+    total = ZERO
+    rows = (Transaction.objects.filter(user=user, kind="expense", date__gt=after, date__lte=last)
+            .values_list("category_id", "amount"))
+    default = services_default_account(user)
+    items = []
+    for item, due in planning.occurrences(user, month - datetime.timedelta(days=45), last):
+        if item.kind != "expense":
+            continue
+        account = item.account or default
+        booked = planning.card_booking(user, account, due)[0] if account and account.is_credit else due
+        if month <= booked <= last and booked > after:
+            items.append((item.category_id, item.amount))
+    for cid, amount in list(rows) + items:
+        total += amount
+        for parent in rollup.get(cid, [cid]):
+            planned[parent] += amount
+    return planned, q2(total)
+
+
+def services_default_account(user):
+    from . import services
+    return services.default_account(user)
+
+
 def status(user, month, today=None):
     today = today or timezone.localdate()
     month = month_start(month)
     last = month_end(month)
-    spent, total = spent_by_category(user, month, last)
+    # "Gasto" is what already happened (up to today); "previsto" is what is still to come this month.
+    cut = min(last, today) if month <= today else month - datetime.timedelta(days=1)
+    spent, total = spent_by_category(user, month, cut) if cut >= month else (defaultdict(lambda: ZERO), ZERO)
+    planned, planned_total = planned_by_category(user, month, cut, last) if last > cut else (defaultdict(lambda: ZERO), ZERO)
     history_first = add_months(month, -ROLLOVER_LOOKBACK)
     spent_map = monthly_spent(user, history_first, month_start(month) - datetime.timedelta(days=1))
     expenses = list(Transaction.objects.filter(user=user, kind="expense", date__gte=month, date__lte=last)
@@ -114,16 +148,19 @@ def status(user, month, today=None):
     items = []
     for budget in Budget.objects.filter(user=user, month=month).select_related("category"):
         used = q2(total if budget.category_id is None else spent.get(budget.category_id, ZERO))
+        coming = q2(planned_total if budget.category_id is None else planned.get(budget.category_id, ZERO))
         carry = carry_over(user, budget.category_id, month, spent_map) if budget.rollover else ZERO
         available = budget.amount + carry
         percent = round(float(used / available * 100), 1)
         projected, safe = pace(available, used, month, today)
         items.append({
-            "id": budget.pk,
+            "id": budget.pk, "uid": str(budget.uid), "version": budget.version,
+            "updated_at": budget.updated_at.isoformat(), "updated_by": budget.updated_by,
             "category": None if budget.category_id is None else {
                 "id": budget.category_id, "name": budget.category.name, "color": budget.category.color,
                 "icon": budget.category.icon},
             "limit": budget.amount, "carry": carry, "available": available, "spent": used,
+            "planned": coming, "with_planned": used + coming, "planned_over": used + coming > available,
             "remaining": available - used, "percent": percent, "rollover": budget.rollover,
             "warn_percent": budget.warn_percent, "level": level_for(percent, budget.warn_percent),
             "over": used > available, "projected": projected, "projected_over": projected > available,
@@ -140,6 +177,7 @@ def status(user, month, today=None):
         "totals": {
             "limit": q2(sum((i["available"] for i in categories), ZERO)),
             "spent": q2(sum((i["spent"] for i in categories), ZERO)),
+            "planned": q2(sum((i["planned"] for i in categories), ZERO)),
             "over": sum(1 for i in items if i["over"]),
             "warn": sum(1 for i in items if i["level"] == "warn"),
             "all_spent": total,
@@ -216,20 +254,20 @@ def notifications(user, today=None):
     out = []
     data = status(user, today, today)
     for item in data["items"]:
-        name = item["category"]["name"] if item["category"] else "Overall budget"
+        name = item["category"]["name"] if item["category"] else "Orçamento geral"
         if item["level"] == "over":
-            out.append({"level": "error", "kind": "budget", "text": f"{name} is over budget.", "url": "/budgets/"})
+            out.append({"level": "error", "kind": "budget", "text": f"{name}: orçamento estourado.", "url": "/budgets/"})
         elif item["level"] == "warn":
             out.append({"level": "warn", "kind": "budget",
-                        "text": f"{name} has used {item['percent']:.0f}% of its budget.", "url": "/budgets/"})
+                        "text": f"{name}: {item['percent']:.0f}% do orçamento já foi usado.", "url": "/budgets/"})
     for rec in user.recurring.filter(active=True).exclude(last_error=""):
-        out.append({"level": "warn", "kind": "recurring", "text": f"{rec.name} could not be recorded: {rec.last_error}",
+        out.append({"level": "warn", "kind": "recurring", "text": f"Não foi possível lançar {rec.name}: {rec.last_error}",
                     "url": "/recurring/"})
     for goal in Goal.objects.filter(user=user, target_date__isnull=False):
         info = goal_summary(goal, today)
         if info["overdue"]:
-            out.append({"level": "warn", "kind": "goal", "text": f"Goal “{goal.name}” is past its target date.",
+            out.append({"level": "warn", "kind": "goal", "text": f"A meta “{goal.name}” passou da data-alvo.",
                         "url": "/goals/"})
     if services.balance_for(user) < 0:
-        out.append({"level": "warn", "kind": "balance", "text": "Your balance is below zero.", "url": "/accounts/"})
+        out.append({"level": "warn", "kind": "balance", "text": "Seu saldo está abaixo de zero.", "url": "/accounts/"})
     return out

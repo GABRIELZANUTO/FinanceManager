@@ -1,0 +1,8 @@
+NAME=Financas Pessoais
+TYPE=site
+ID=meu-financas
+MAIN=manage.py
+RAM=512
+VERSION=3.11
+AUTORESTART=true
+START=sh start.sh

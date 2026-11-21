@@ -1,0 +1,30 @@
+{% load static %}<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API - Finanças Pessoais</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="{% static 'app/img/favicon.svg' %}" type="image/svg+xml">
+  <link rel="stylesheet" href="{% static 'app/css/app.css' %}">
+</head>
+<body>
+  <main class="auth" id="main">
+    <div class="auth-card wide">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">F</span>Finanças Pessoais</div>
+      <article class="card privacy">
+        <h1>API (versão {{ info.version }})</h1>
+        <p>{{ info.description }}</p>
+        <p class="muted small">Crie uma chave em Configurações, "Acesso pela API e dispositivos", ou com
+          <code>POST /api/v1/auth/token</code>. Documento completo: <a href="openapi.json">openapi.json</a>.</p>
+        {% for group in groups %}
+          <h2><code>{{ group.path }}</code></h2>
+          <ul>
+            {% for op in group.ops %}<li><strong>{{ op.method }}</strong> {{ op.summary }}{% if op.public %} <span class="muted small">(sem chave)</span>{% endif %}</li>{% endfor %}
+          </ul>
+        {% endfor %}
+      </article>
+    </div>
+  </main>
+</body>
+</html>

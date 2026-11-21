@@ -4,7 +4,7 @@ import { COMMON } from './common-passwords.js';
 
 function swap(button, show) {
   button.setAttribute('aria-pressed', String(show));
-  button.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  button.setAttribute('aria-label', show ? 'Ocultar senha' : 'Mostrar senha');
   button.replaceChildren(icon(show ? 'eye-off' : 'eye'));
 }
 
@@ -20,7 +20,7 @@ function score(value) {
   return Math.min(points, 4);
 }
 
-const LABELS = ['Too weak', 'Weak', 'Fair', 'Good', 'Strong'];
+const LABELS = ['Muito fraca', 'Fraca', 'Razoável', 'Boa', 'Forte'];
 
 /** Words from other fields (or a data attribute) that a password should not contain. */
 function personalWords(input) {
@@ -38,11 +38,11 @@ function personalWords(input) {
 export function passwordProblem(input) {
   const value = input.value;
   const min = Number(input.dataset.minLength) || 8;
-  if (value.length < min) return `Use at least ${min} characters (${value.length} so far).`;
-  if (/^\d+$/.test(value)) return 'Add some letters. A password of only digits is not allowed.';
+  if (value.length < min) return `Use pelo menos ${min} caracteres (${value.length} até agora).`;
+  if (/^\d+$/.test(value)) return 'Inclua algumas letras. Senhas só com números não são permitidas.';
   const lower = value.toLowerCase();
-  if (personalWords(input).some((w) => lower.includes(w))) return 'Avoid your name, username or email inside the password.';
-  if (COMMON.has(lower)) return 'That password is very common. Try something less guessable.';
+  if (personalWords(input).some((w) => lower.includes(w))) return 'Evite usar seu nome, usuário ou e-mail na senha.';
+  if (COMMON.has(lower)) return 'Essa senha é muito comum. Tente algo mais difícil de adivinhar.';
   return '';
 }
 
@@ -87,14 +87,14 @@ for (const input of document.querySelectorAll('input[type="password"]')) {
         return;
       }
       const problem = passwordProblem(input);
-      setHint(message, problem || 'Looks good.', !problem);
+      setHint(message, problem || 'Tudo certo.', !problem);
       if (problem) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
       if (meter) {
         const s = score(input.value);
         meter.hidden = false;
         meter.dataset.level = String(s);
         bar.style.width = `${(s + 1) * 20}%`;
-        label.textContent = `Strength: ${LABELS[s]}`;
+        label.textContent = `Força: ${LABELS[s]}`;
       }
     };
     input.addEventListener('input', update);
@@ -111,7 +111,7 @@ for (const input of document.querySelectorAll('input[type="password"]')) {
     const update = () => {
       note.hidden = !input.value;
       const same = input.value === other.value;
-      note.textContent = same ? 'Passwords match.' : 'The two passwords do not match yet.';
+      note.textContent = same ? 'As senhas conferem.' : 'As duas senhas ainda não são iguais.';
       note.classList.toggle('ok', same);
       if (input.value && !same) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
     };

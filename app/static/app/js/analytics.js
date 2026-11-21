@@ -3,7 +3,7 @@ import {
   balanceArea, cumulativeLine, dataTable, donut, goalBars, groupedBars, heatmap, monthlyBars, netFlowLine, rankedBars,
   sparklines, stackedBars,
 } from './charts.js';
-import { dayLabel, monthLong, monthShort } from './format.js';
+import { dateBR, dayLabel, monthLong, monthShort } from './format.js';
 
 const form = document.getElementById('range-form');
 const note = document.getElementById('range-note');
@@ -21,67 +21,67 @@ const PRESETS = {
   365: () => [new Date(now().getFullYear(), now().getMonth(), now().getDate() - 364), now()],
 };
 
-const empty = (title, text = 'Try a wider date range or remove a filter.') => emptyState(title, text);
+const empty = (title, text = 'Tente um período maior ou remova um filtro.') => emptyState(title, text);
 
 // Each chart: draw(box, width, data) and the columns/rows for its table view.
 const CHARTS = {
   monthly: {
     draw: (box, w, d) => monthlyBars(box, d.monthly, w),
-    table: (d) => [[{ label: 'Month', get: (r) => monthLong(r.month) }, { label: 'Income', num: true, get: (r) => formatMoney(r.income) },
-      { label: 'Expenses', num: true, get: (r) => formatMoney(r.expense) }], d.monthly],
+    table: (d) => [[{ label: 'Mês', get: (r) => monthLong(r.month) }, { label: 'Receitas', num: true, get: (r) => formatMoney(r.income) },
+      { label: 'Despesas', num: true, get: (r) => formatMoney(r.expense) }], d.monthly],
   },
   netflow: {
     draw: (box, w, d) => netFlowLine(box, d.monthly, w),
-    table: (d) => [[{ label: 'Month', get: (r) => monthLong(r.month) }, { label: 'Net', num: true, get: (r) => formatMoney(r.net) }], d.monthly],
+    table: (d) => [[{ label: 'Mês', get: (r) => monthLong(r.month) }, { label: 'Saldo', num: true, get: (r) => formatMoney(r.net) }], d.monthly],
   },
   stacked: {
-    draw: (box, w, d) => (d.stacked.series.length ? stackedBars(box, d.stacked, w) : box.replaceChildren(empty('No expenses yet'))),
-    table: (d) => [[{ label: 'Month', get: (r) => monthLong(r.month) }, ...d.stacked.series.map((s, i) => ({ label: s.name, num: true, get: (r) => formatMoney(s.values[r.i]) }))],
+    draw: (box, w, d) => (d.stacked.series.length ? stackedBars(box, d.stacked, w) : box.replaceChildren(empty('Nenhuma despesa ainda'))),
+    table: (d) => [[{ label: 'Mês', get: (r) => monthLong(r.month) }, ...d.stacked.series.map((s, i) => ({ label: s.name, num: true, get: (r) => formatMoney(s.values[r.i]) }))],
       d.stacked.months.map((month, i) => ({ month, i }))],
   },
   donut: {
-    draw: (box, w, d) => (d.categories.length ? donut(box, d.categories, w) : box.replaceChildren(empty('No expenses in this range'))),
-    table: (d) => [[{ label: 'Category', get: (r) => r.name }, { label: 'Share', num: true, get: (r) => `${r.share}%` }, { label: 'Total', num: true, get: (r) => formatMoney(r.total) }], d.categories],
+    draw: (box, w, d) => (d.categories.length ? donut(box, d.categories, w) : box.replaceChildren(empty('Nenhuma despesa neste período'))),
+    table: (d) => [[{ label: 'Categoria', get: (r) => r.name }, { label: 'Participação', num: true, get: (r) => `${r.share}%` }, { label: 'Total', num: true, get: (r) => formatMoney(r.total) }], d.categories],
   },
   ranked: {
-    draw: (box, w, d) => (d.categories.length ? rankedBars(box, d.categories, w, { title: 'Expenses by category, ranked' }) : box.replaceChildren(empty('No expenses in this range'))),
-    table: (d) => [[{ label: 'Category', get: (r) => r.name }, { label: 'Transactions', num: true, get: (r) => String(r.count) }, { label: 'Total', num: true, get: (r) => formatMoney(r.total) }], d.categories],
+    draw: (box, w, d) => (d.categories.length ? rankedBars(box, d.categories, w, { title: 'Despesas por categoria, em ordem' }) : box.replaceChildren(empty('Nenhuma despesa neste período'))),
+    table: (d) => [[{ label: 'Categoria', get: (r) => r.name }, { label: 'Transações', num: true, get: (r) => String(r.count) }, { label: 'Total', num: true, get: (r) => formatMoney(r.total) }], d.categories],
   },
   sparks: {
-    draw: (box, w, d) => (d.trend.length ? sparklines(box, d.trend, d.stacked.months, w) : box.replaceChildren(empty('No category history yet'))),
-    table: (d) => [[{ label: 'Category', get: (r) => r.name }, ...d.stacked.months.map((m, i) => ({ label: monthShort(m), num: true, get: (r) => formatMoney(r.values[i]) }))], d.trend],
+    draw: (box, w, d) => (d.trend.length ? sparklines(box, d.trend, d.stacked.months, w) : box.replaceChildren(empty('Ainda não há histórico de categorias'))),
+    table: (d) => [[{ label: 'Categoria', get: (r) => r.name }, ...d.stacked.months.map((m, i) => ({ label: monthShort(m), num: true, get: (r) => formatMoney(r.values[i]) }))], d.trend],
   },
   heatmap: {
     draw: (box, w, d) => heatmap(box, d.heatmap, w),
-    table: (d) => [[{ label: 'Date', get: (r) => r.date }, { label: 'Spent', num: true, get: (r) => formatMoney(r.expense) }], d.heatmap.days.filter((x) => Number(x.expense) > 0)],
+    table: (d) => [[{ label: 'Data', get: (r) => dateBR(r.date) }, { label: 'Gasto', num: true, get: (r) => formatMoney(r.expense) }], d.heatmap.days.filter((x) => Number(x.expense) > 0)],
   },
   weekday: {
     draw: (box, w, d) => groupedBars(box, d.weekday.map((r) => ({ label: r.day, long: r.day, a: r.average })), w,
-      { title: 'Average spending by weekday', aName: 'Average', aClass: 'm-budget' }),
-    table: (d) => [[{ label: 'Weekday', get: (r) => r.day }, { label: 'Average per day', num: true, get: (r) => formatMoney(r.average) }, { label: 'Total', num: true, get: (r) => formatMoney(r.total) }], d.weekday],
+      { title: 'Gasto médio por dia da semana', aName: 'Média', aClass: 'm-budget' }),
+    table: (d) => [[{ label: 'Dia da semana', get: (r) => r.day }, { label: 'Média por dia', num: true, get: (r) => formatMoney(r.average) }, { label: 'Total', num: true, get: (r) => formatMoney(r.total) }], d.weekday],
   },
   cumulative: {
     draw: (box, w, d) => cumulativeLine(box, d.cumulative, w),
-    table: (d) => [[{ label: 'Date', get: (r) => r.date }, { label: 'Spent so far', num: true, get: (r) => formatMoney(r.spent) }], d.cumulative.days],
+    table: (d) => [[{ label: 'Data', get: (r) => dateBR(r.date) }, { label: 'Gasto acumulado', num: true, get: (r) => formatMoney(r.spent) }], d.cumulative.days],
   },
   budget: {
     draw: (box, w, d) => (d.budget_vs_actual.length
       ? groupedBars(box, d.budget_vs_actual.map((r) => ({ label: r.name.slice(0, 8), long: r.name, a: r.limit, b: r.spent })), w,
-        { title: 'Budget and actual', aName: 'Budget', bName: 'Spent', aClass: 'm-budget', bClass: 'm-expense' })
-      : box.replaceChildren(empty('No budgets for this month', 'Set budgets on the Budgets page.'))),
-    table: (d) => [[{ label: 'Budget', get: (r) => r.name }, { label: 'Limit', num: true, get: (r) => formatMoney(r.limit) }, { label: 'Spent', num: true, get: (r) => formatMoney(r.spent) }], d.budget_vs_actual],
+        { title: 'Orçado e realizado', aName: 'Orçado', bName: 'Gasto', aClass: 'm-budget', bClass: 'm-expense' })
+      : box.replaceChildren(empty('Nenhum orçamento para este mês', 'Defina orçamentos na página Orçamentos.'))),
+    table: (d) => [[{ label: 'Orçamento', get: (r) => r.name }, { label: 'Limite', num: true, get: (r) => formatMoney(r.limit) }, { label: 'Gasto', num: true, get: (r) => formatMoney(r.spent) }], d.budget_vs_actual],
   },
   goals: {
-    draw: (box, w, d) => (d.goals.length ? goalBars(box, d.goals, w) : box.replaceChildren(empty('No goals yet', 'Create one on the Goals page.'))),
-    table: (d) => [[{ label: 'Goal', get: (r) => r.name }, { label: 'Saved', num: true, get: (r) => formatMoney(r.saved) }, { label: 'Target', num: true, get: (r) => formatMoney(r.target) }, { label: 'Progress', num: true, get: (r) => `${r.percent}%` }], d.goals],
+    draw: (box, w, d) => (d.goals.length ? goalBars(box, d.goals, w) : box.replaceChildren(empty('Nenhuma meta ainda', 'Crie uma na página Metas.'))),
+    table: (d) => [[{ label: 'Meta', get: (r) => r.name }, { label: 'Guardado', num: true, get: (r) => formatMoney(r.saved) }, { label: 'Objetivo', num: true, get: (r) => formatMoney(r.target) }, { label: 'Progresso', num: true, get: (r) => `${r.percent}%` }], d.goals],
   },
   balance: {
     draw: (box, w, d) => balanceArea(box, d.daily, w),
-    table: (d) => [[{ label: 'Date', get: (r) => r.date }, { label: 'Income', num: true, get: (r) => formatMoney(r.income) }, { label: 'Expenses', num: true, get: (r) => formatMoney(r.expense) }, { label: 'Balance', num: true, get: (r) => formatMoney(r.balance) }], d.daily],
+    table: (d) => [[{ label: 'Data', get: (r) => dateBR(r.date) }, { label: 'Receitas', num: true, get: (r) => formatMoney(r.income) }, { label: 'Despesas', num: true, get: (r) => formatMoney(r.expense) }, { label: 'Saldo', num: true, get: (r) => formatMoney(r.balance) }], d.daily],
   },
   payees: {
-    draw: (box, w, d) => (d.payees.length ? rankedBars(box, d.payees.map((p) => ({ ...p, total: p.total, color: 'blue' })), w, { title: 'Top payees' }) : box.replaceChildren(empty('No payees recorded', 'Add a payee when you record an expense.'))),
-    table: (d) => [[{ label: 'Payee', get: (r) => r.name }, { label: 'Transactions', num: true, get: (r) => String(r.count) }, { label: 'Total', num: true, get: (r) => formatMoney(r.total) }], d.payees],
+    draw: (box, w, d) => (d.payees.length ? rankedBars(box, d.payees.map((p) => ({ ...p, total: p.total, color: 'blue' })), w, { title: 'Principais favorecidos' }) : box.replaceChildren(empty('Nenhum favorecido registrado', 'Informe o favorecido ao registrar uma despesa.'))),
+    table: (d) => [[{ label: 'Favorecido', get: (r) => r.name }, { label: 'Transações', num: true, get: (r) => String(r.count) }, { label: 'Total', num: true, get: (r) => formatMoney(r.total) }], d.payees],
   },
 };
 
@@ -94,7 +94,7 @@ function draw(name) {
   const width = Math.max(240, Math.floor(card.box.clientWidth || card.el.clientWidth - 32));
   if (card.view === 'table') {
     const [columns, rows] = spec.table(data);
-    card.box.replaceChildren(rows.length ? dataTable(columns, rows) : empty('No data'));
+    card.box.replaceChildren(rows.length ? dataTable(columns, rows) : empty('Sem dados'));
   } else {
     spec.draw(card.box, width, data);
   }
@@ -104,15 +104,15 @@ function renderTotals() {
   const t = data.totals;
   const stat = (label, value, tint) => h('div', { class: 'card stat' }, h('div', { class: 'label', text: label }),
     h('div', { class: `value ${tint || ''}`, text: formatMoney(value) }));
-  $('#totals').replaceChildren(stat('Income', t.income, 'pos'), stat('Expenses', t.expense, 'neg'),
-    stat('Net', t.net, Number(t.net) < 0 ? 'neg' : 'pos'), stat('Balance at start', data.opening_balance));
+  $('#totals').replaceChildren(stat('Receitas', t.income, 'pos'), stat('Despesas', t.expense, 'neg'),
+    stat('Resultado', t.net, Number(t.net) < 0 ? 'neg' : 'pos'), stat('Saldo no início', data.opening_balance));
 }
 
 function renderTop() {
   const host = $('#top-list');
-  if (!data.top.length) { host.replaceChildren(empty('No expenses in this range')); return; }
+  if (!data.top.length) { host.replaceChildren(empty('Nenhuma despesa neste período')); return; }
   host.replaceChildren(h('ol', { class: 'top-list' }, ...data.top.map((t) => h('li', {},
-    h('span', { class: 'grow' }, h('strong', { text: t.name }), h('span', { class: 'muted small', text: ` ${t.category.name} · ${t.date}` })),
+    h('span', { class: 'grow' }, h('strong', { text: t.name }), h('span', { class: 'muted small', text: ` ${t.category.name} · ${dateBR(t.date)}` })),
     h('span', { class: 'neg', text: formatMoney(t.amount) })))));
 }
 
@@ -130,7 +130,7 @@ async function load() {
   try {
     data = await api('/api/analytics/', { query: q });
     errorBox.hidden = true;
-    note.textContent = `${data.daily.length} day(s). Monthly charts show the 12 months up to the end date. Balance ignores the category and tag filters.`;
+    note.textContent = `${data.daily.length} dia(s). Os gráficos mensais mostram os 12 meses até a data final. O saldo ignora os filtros de categoria e tag.`;
     renderTotals();
     renderTop();
     Object.keys(cards).forEach(draw);
@@ -144,7 +144,7 @@ $$('[data-toggle-table]').forEach((button) => button.addEventListener('click', (
   const name = Object.keys(cards).find((key) => cards[key].el.contains(button));
   const card = cards[name];
   card.view = card.view === 'chart' ? 'table' : 'chart';
-  button.textContent = card.view === 'chart' ? 'Show table' : 'Show chart';
+  button.textContent = card.view === 'chart' ? 'Mostrar tabela' : 'Mostrar gráfico';
   button.setAttribute('aria-pressed', String(card.view === 'table'));
   if (data) draw(name);
 }));

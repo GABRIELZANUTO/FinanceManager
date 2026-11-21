@@ -22,6 +22,8 @@ from .models import (
     Contribution,
     Goal,
     KIND_CHOICES,
+    KIND_PLURAL,
+    CARD_DATE_MODES,
     LEDGER_KINDS,
     LedgerEntry,
     Person,
@@ -30,12 +32,13 @@ from .models import (
     Transaction,
     Transfer,
     validate_date,
+    validate_transaction_date,
 )
 
 User = get_user_model()
 
-CATEGORY_ERROR = {"invalid_choice": "Choose one of your own categories."}
-ACCOUNT_ERROR = {"invalid_choice": "Choose one of your own accounts."}
+CATEGORY_ERROR = {"invalid_choice": "Escolha uma das suas categorias."}
+ACCOUNT_ERROR = {"invalid_choice": "Escolha uma das suas contas."}
 MAX_TAGS = 10
 
 
@@ -69,18 +72,18 @@ class TagsField(forms.Field):
         if isinstance(value, str):
             value = value.split(",")
         if not isinstance(value, (list, tuple)):
-            raise forms.ValidationError("Tags must be a list of names.")
+            raise forms.ValidationError("As tags devem ser uma lista de nomes.")
         names = []
         for raw in value:
             name = " ".join(str(raw).split())
             if not name:
                 continue
             if len(name) > 30:
-                raise forms.ValidationError("A tag can have at most 30 characters.")
+                raise forms.ValidationError("Uma tag pode ter no máximo 30 caracteres.")
             if name.lower() not in [n.lower() for n in names]:
                 names.append(name)
         if len(names) > MAX_TAGS:
-            raise forms.ValidationError(f"Use at most {MAX_TAGS} tags.")
+            raise forms.ValidationError(f"Use no máximo {MAX_TAGS} tags.")
         return names
 
 
@@ -116,12 +119,12 @@ class TransactionForm(forms.ModelForm):
             text = f"{cleaned.get('name', '')} {cleaned.get('payee', '')}"
             category = services.suggest_category(self.user, text, kind)
             if category is None:
-                self.add_error("category", "Choose a category.")
+                self.add_error("category", "Escolha uma categoria.")
             else:
                 cleaned["category"] = category
                 self.instance.category = category
         if category and kind and not category.accepts(kind):
-            self.add_error("category", f"This category cannot be used for {kind} transactions.")
+            self.add_error("category", f"Esta categoria não pode ser usada em {KIND_PLURAL[kind]}.")
         return cleaned
 
     @property
@@ -133,7 +136,7 @@ class CategoryForm(forms.ModelForm):
     class Meta:
         model = Category
         fields = ["name", "kind", "color", "icon", "parent"]
-        error_messages = {"parent": {"invalid_choice": "Choose one of your own categories."}}
+        error_messages = {"parent": {"invalid_choice": "Escolha uma das suas categorias."}}
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
@@ -151,7 +154,7 @@ class CategoryForm(forms.ModelForm):
         if self.instance.pk:
             clash = clash.exclude(pk=self.instance.pk)
         if clash.exists():
-            raise forms.ValidationError(f"You already have a category named “{name}”.")
+            raise forms.ValidationError(f"Você já tem uma categoria chamada “{name}”.")
         return name
 
     def clean_kind(self):
@@ -159,13 +162,13 @@ class CategoryForm(forms.ModelForm):
         if self.instance.pk and kind != "both":
             other = "income" if kind == "expense" else "expense"
             if Transaction.all_objects.filter(category=self.instance, kind=other).exists():
-                raise forms.ValidationError(f"This category already has {other} transactions.")
+                raise forms.ValidationError(f"Esta categoria já tem {KIND_PLURAL[other]} lançadas.")
         return kind
 
     def clean_parent(self):
         parent = self.cleaned_data.get("parent")
         if parent and self.instance.pk and Category.objects.filter(parent=self.instance).exists():
-            raise forms.ValidationError("A category that has sub-categories cannot become a sub-category.")
+            raise forms.ValidationError("Uma categoria que tem subcategorias não pode virar subcategoria.")
         return parent
 
 
@@ -178,12 +181,31 @@ class AccountForm(forms.ModelForm):
 
     class Meta:
         model = Account
-        fields = ["name", "type", "opening_balance", "archived"]
+        fields = ["name", "type", "opening_balance", "archived", "credit_limit", "due_day", "closing_day"]
+        error_messages = {
+            "credit_limit": {"min_value": "O limite deve ser maior que zero.", "invalid": "Informe um valor válido."},
+            "due_day": {"min_value": "Use um dia entre 1 e 31.", "max_value": "Use um dia entre 1 e 31.",
+                        "invalid": "Use um dia entre 1 e 31."},
+            "closing_day": {"min_value": "Use um dia entre 1 e 31.", "max_value": "Use um dia entre 1 e 31.",
+                            "invalid": "Use um dia entre 1 e 31."},
+        }
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
         self.instance.user = user
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("type") != "credit":   # limit and due day only mean something on a card
+            cleaned["credit_limit"] = None
+            cleaned["due_day"] = None
+            cleaned["closing_day"] = None
+        elif cleaned.get("closing_day") and not cleaned.get("due_day"):
+            self.add_error("due_day", "Informe também o dia do vencimento.")
+        elif cleaned.get("closing_day") and cleaned.get("closing_day") == cleaned.get("due_day"):
+            self.add_error("closing_day", "O fechamento acontece alguns dias antes do vencimento.")
+        return cleaned
 
     def clean_name(self):
         name = " ".join(self.cleaned_data["name"].split())
@@ -191,7 +213,7 @@ class AccountForm(forms.ModelForm):
         if self.instance.pk:
             clash = clash.exclude(pk=self.instance.pk)
         if clash.exists():
-            raise forms.ValidationError(f"You already have an account named “{name}”.")
+            raise forms.ValidationError(f"Você já tem uma conta chamada “{name}”.")
         return name
 
     def clean_opening_balance(self):
@@ -217,7 +239,7 @@ class TransferForm(forms.ModelForm):
         cleaned = super().clean()
         a, b = cleaned.get("from_account"), cleaned.get("to_account")
         if a and b and a.pk == b.pk:
-            self.add_error("to_account", "Choose two different accounts.")
+            self.add_error("to_account", "Escolha duas contas diferentes.")
         return cleaned
 
 
@@ -225,7 +247,7 @@ class SplitForm(forms.Form):
     """One purchase over several categories."""
 
     name = forms.CharField(max_length=120)
-    date = forms.DateField(validators=[validate_date])
+    date = forms.DateField(validators=[validate_transaction_date])
     kind = forms.ChoiceField(choices=KIND_CHOICES)
     account = forms.ModelChoiceField(queryset=Account.objects.none(), required=False, error_messages=ACCOUNT_ERROR)
     payee = forms.CharField(max_length=80, required=False)
@@ -243,7 +265,7 @@ class SplitForm(forms.Form):
     def clean_splits(self):
         value = self.cleaned_data["splits"]
         if not isinstance(value, list) or not 2 <= len(value) <= 12:
-            raise forms.ValidationError("Split the purchase into 2 to 12 parts.")
+            raise forms.ValidationError("Divida a compra em 2 a 12 partes.")
         return value
 
     def clean(self):
@@ -263,15 +285,15 @@ class SplitForm(forms.Form):
                 if not amount.is_finite() or amount < MIN_AMOUNT or amount > MAX_AMOUNT or amount != amount.quantize(Decimal("0.01")):
                     raise InvalidOperation
             except (KeyError, TypeError, ValueError, InvalidOperation, AttributeError):
-                self.add_error("splits", f"Part {i}: choose one of your categories and a positive amount with at most 2 decimals.")
+                self.add_error("splits", f"Parte {i}: escolha uma das suas categorias e um valor positivo com no máximo 2 casas decimais.")
                 return cleaned
             if not category.accepts(kind):
-                self.add_error("splits", f"Part {i}: {category.name} cannot be used for {kind} transactions.")
+                self.add_error("splits", f"Parte {i}: {category.name} não pode ser usada em {KIND_PLURAL[kind]}.")
                 return cleaned
             parts.append((category, amount))
             total += amount
         if cleaned.get("amount") is not None and cleaned["amount"] != total:
-            self.add_error("amount", f"The parts add up to {total}, not {cleaned['amount']}.")
+            self.add_error("amount", f"As partes somam {total}, e não {cleaned['amount']}.")
         self._parts = parts
         return cleaned
 
@@ -300,11 +322,13 @@ class PersonForm(forms.ModelForm):
         if self.instance.pk:
             clash = clash.exclude(pk=self.instance.pk)
         if clash.exists():
-            raise forms.ValidationError(f"You already track someone called \u201c{name}\u201d.")
+            raise forms.ValidationError(f"Você já acompanha alguém chamado \u201c{name}\u201d.")
         return name
 
 
 class LedgerEntryForm(forms.Form):
+    """One thing that happened with a person (debts module). See app/debts.py for the money rules."""
+
     kind = forms.ChoiceField(choices=LEDGER_KINDS)
     amount = forms.DecimalField(max_digits=12, decimal_places=2, min_value=MIN_AMOUNT, max_value=MAX_AMOUNT, required=False)
     total = forms.DecimalField(max_digits=12, decimal_places=2, min_value=MIN_AMOUNT, max_value=MAX_AMOUNT, required=False)
@@ -312,33 +336,103 @@ class LedgerEntryForm(forms.Form):
     description = forms.CharField(max_length=120, required=False)
     date = forms.DateField(validators=[validate_date], required=False)
     due_date = forms.DateField(required=False)
+    account = forms.ModelChoiceField(queryset=Account.objects.none(), required=False, error_messages=ACCOUNT_ERROR)
+    category = forms.ModelChoiceField(queryset=Category.objects.none(), required=False, error_messages=CATEGORY_ERROR)
+    installments = forms.IntegerField(min_value=2, max_value=72, required=False,
+                                      error_messages={"min_value": "Use de 2 a 72 parcelas.", "max_value": "Use de 2 a 72 parcelas."})
+    first_due = forms.DateField(validators=[validate_transaction_date], required=False)
+    installment_account = forms.ModelChoiceField(queryset=Account.objects.none(), required=False, error_messages=ACCOUNT_ERROR)
+
+    def __init__(self, *args, user, kind=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        accounts = Account.objects.filter(user=user, archived=False)
+        self.fields["account"].queryset = accounts
+        self.fields["installment_account"].queryset = accounts
+        self.fields["category"].queryset = Category.objects.filter(user=user)
+        if kind:   # editing: the kind of an entry does not change
+            self.fields["kind"].required = False
+            self.fixed_kind = kind
+        else:
+            self.fixed_kind = None
 
     def clean(self):
         cleaned = super().clean()
-        kind = cleaned.get("kind")
+        kind = self.fixed_kind or cleaned.get("kind")
+        cleaned["kind"] = kind
         if kind in ("split_me", "split_them") and cleaned.get("total") is not None:
             total = cleaned["total"]
             mine = cleaned.get("my_share")
             if mine is None:
                 mine = (total / 2).quantize(Decimal("0.01"))
             if mine >= total:
-                self.add_error("my_share", "Your share must be less than the total.")
+                self.add_error("my_share", "Sua parte deve ser menor que o total.")
                 return cleaned
+            cleaned["my_share"] = mine
             cleaned["amount"] = (total - mine) if kind == "split_me" else mine
             if cleaned["amount"] <= 0:
-                self.add_error("my_share", "Your share must be more than zero for a bill they paid.")
+                self.add_error("my_share", "Sua parte deve ser maior que zero quando a outra pessoa pagou a conta.")
+            if cleaned.get("account") and mine > 0 and not cleaned.get("category"):
+                self.add_error("category", "Escolha a categoria da sua parte (ela entra nas suas despesas).")
+        if kind == "split_them" and cleaned.get("total") is None and cleaned.get("my_share"):
+            # Editing a bill the other person paid: only your share is kept (it is what you owe).
+            cleaned["amount"] = cleaned["my_share"]
+            if cleaned.get("account") and not cleaned.get("category"):
+                self.add_error("category", "Escolha a categoria da sua parte (ela entra nas suas despesas).")
         if cleaned.get("amount") is None and not self.errors:
-            self.add_error("amount", "Enter an amount.")
+            self.add_error("amount", "Informe um valor.")
         due = cleaned.get("due_date")
         if due and due < MIN_DATE:
-            self.add_error("due_date", "Date is too far in the past.")
+            self.add_error("due_date", "Data antiga demais.")
+        if cleaned.get("installments") and not cleaned.get("first_due"):
+            self.add_error("first_due", "Informe a data da primeira parcela.")
         return cleaned
 
-    def build(self, person):
-        d = self.cleaned_data
-        sign = 1 if d["kind"] in ("lent", "split_me", "paid_them") else -1
-        return LedgerEntry(person=person, kind=d["kind"], amount=sign * d["amount"], description=d.get("description", ""),
-                           date=d.get("date") or timezone.localdate(), due_date=d.get("due_date"))
+
+class SplitAmongForm(forms.Form):
+    """You paid one bill shared with several people."""
+
+    people = forms.JSONField()
+    total = forms.DecimalField(max_digits=12, decimal_places=2, min_value=MIN_AMOUNT, max_value=MAX_AMOUNT)
+    my_share = forms.DecimalField(max_digits=12, decimal_places=2, min_value=0, max_value=MAX_AMOUNT, required=False)
+    date = forms.DateField(validators=[validate_date], required=False)
+    description = forms.CharField(max_length=120, required=False)
+    account = forms.ModelChoiceField(queryset=Account.objects.none(), required=False, error_messages=ACCOUNT_ERROR)
+    category = forms.ModelChoiceField(queryset=Category.objects.none(), required=False, error_messages=CATEGORY_ERROR)
+
+    def __init__(self, *args, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.fields["account"].queryset = Account.objects.filter(user=user, archived=False)
+        self.fields["category"].queryset = Category.objects.filter(user=user)
+
+    def clean_people(self):
+        ids = self.cleaned_data["people"]
+        if not isinstance(ids, list) or not ids:
+            raise forms.ValidationError("Escolha pelo menos uma pessoa.")
+        try:
+            ids = list(dict.fromkeys(int(i) for i in ids))
+        except (TypeError, ValueError):
+            raise forms.ValidationError("Escolha pessoas da sua lista.") from None
+        people = list(Person.objects.filter(user=self.user, pk__in=ids))
+        if len(people) != len(ids):
+            raise forms.ValidationError("Escolha pessoas da sua lista.")
+        return people
+
+    def clean(self):
+        cleaned = super().clean()
+        total, people = cleaned.get("total"), cleaned.get("people")
+        if total is None or not people:
+            return cleaned
+        mine = cleaned.get("my_share")
+        if mine is None:   # equal parts, you included
+            mine = (total / (len(people) + 1)).quantize(Decimal("0.01"))
+        if mine >= total:
+            self.add_error("my_share", "A sua parte deve ser menor que o total.")
+        cleaned["my_share"] = mine
+        if cleaned.get("account") and mine > 0 and not cleaned.get("category"):
+            self.add_error("category", "Escolha a categoria da sua parte (ela entra nas suas despesas).")
+        return cleaned
 
 
 class RuleForm(forms.ModelForm):
@@ -358,7 +452,7 @@ class RuleForm(forms.ModelForm):
     def clean_pattern(self):
         pattern = " ".join(self.cleaned_data["pattern"].split())
         if len(pattern) < 2:
-            raise forms.ValidationError("Use at least 2 characters.")
+            raise forms.ValidationError("Use pelo menos 2 caracteres.")
         return pattern
 
     def clean_priority(self):
@@ -382,7 +476,7 @@ class BudgetForm(forms.Form):
         value = self.cleaned_data["month"]
         month = services.parse_month(value, default=None) if len(str(value)) == 7 else None
         if month is None or str(value) != month.strftime("%Y-%m"):
-            raise forms.ValidationError("Use a month like 2025-03.")
+            raise forms.ValidationError("Use um mês no formato 2025-03.")
         return month
 
     def save(self):
@@ -411,9 +505,9 @@ class GoalForm(forms.ModelForm):
     def clean_target_date(self):
         value = self.cleaned_data.get("target_date")
         if value and value < MIN_DATE:
-            raise forms.ValidationError("Date is too far in the past.")
+            raise forms.ValidationError("Data antiga demais.")
         if value and value > timezone.localdate() + datetime.timedelta(days=365 * 50):
-            raise forms.ValidationError("Date is too far in the future.")
+            raise forms.ValidationError("Data distante demais no futuro.")
         return value
 
 
@@ -427,7 +521,7 @@ class ContributionForm(forms.ModelForm):
     def clean_amount(self):
         value = self.cleaned_data["amount"]
         if value == 0:
-            raise forms.ValidationError("Enter an amount other than zero.")
+            raise forms.ValidationError("Informe um valor diferente de zero.")
         return value
 
 
@@ -445,7 +539,7 @@ class SavedViewForm(forms.ModelForm):
     def clean_name(self):
         name = " ".join(self.cleaned_data["name"].split())
         if SavedView.objects.filter(user=self.user, name__iexact=name).exists():
-            raise forms.ValidationError("You already have a view with that name.")
+            raise forms.ValidationError("Você já tem um filtro salvo com esse nome.")
         return name
 
     def clean_query(self):
@@ -455,7 +549,8 @@ class SavedViewForm(forms.ModelForm):
 class RecurringForm(forms.ModelForm):
     class Meta:
         model = RecurringTransaction
-        fields = ["name", "amount", "kind", "category", "account", "payee", "note", "frequency", "start_date", "end_date"]
+        fields = ["name", "amount", "kind", "category", "account", "payee", "note", "frequency", "start_date", "end_date",
+                  "installment_total", "installment_first"]
         widgets = {"start_date": forms.DateInput(attrs={"type": "date"}), "end_date": forms.DateInput(attrs={"type": "date"})}
         error_messages = {"category": CATEGORY_ERROR, "account": ACCOUNT_ERROR}
 
@@ -471,19 +566,40 @@ class RecurringForm(forms.ModelForm):
     def clean_start_date(self):
         value = self.cleaned_data["start_date"]
         if value < MIN_DATE:
-            raise forms.ValidationError(f"Date cannot be before {MIN_DATE.isoformat()}.")
+            raise forms.ValidationError(f"A data não pode ser anterior a {MIN_DATE:%d/%m/%Y}.")
         if value > timezone.localdate() + datetime.timedelta(days=366):
-            raise forms.ValidationError("Start date is too far in the future.")
+            raise forms.ValidationError("A data inicial está distante demais no futuro.")
         return value
 
     def clean(self):
         cleaned = super().clean()
         start, end = cleaned.get("start_date"), cleaned.get("end_date")
-        if start and end and end < start:
-            self.add_error("end_date", "End date must be on or after the start date.")
+        total, first = cleaned.get("installment_total"), cleaned.get("installment_first")
+        if total:
+            # A purchase in installments, like the ones read from card invoices: one a month,
+            # named "X (parcelado em Nx)", ending on the last installment.
+            first = first or 1
+            if not 2 <= total <= 72:
+                self.add_error("installment_total", "Use de 2 a 72 parcelas.")
+            elif not 1 <= first <= total:
+                self.add_error("installment_first", f"Use um número de 1 a {total}.")
+            elif start:
+                cleaned["installment_first"] = first
+                cleaned["frequency"] = RecurringTransaction.MONTHLY
+                cleaned["end_date"] = services.add_months(start, total - first, anchor_day=start.day)
+                if cleaned.get("name"):
+                    cleaned["name"] = services.plan_name(services.base_name(cleaned["name"]), total)
+            if cleaned.get("kind") == "income":
+                self.add_error("kind", "Compra parcelada é uma despesa.")
+        else:
+            cleaned["installment_first"] = None
+        if cleaned.get("frequency") == RecurringTransaction.ONCE and start:
+            cleaned["end_date"] = start   # a one-off forecast happens on a single day
+        elif start and end and end < start and not total:
+            self.add_error("end_date", "A data final deve ser igual ou posterior à data inicial.")
         category, kind = cleaned.get("category"), cleaned.get("kind")
         if category and kind and not category.accepts(kind):
-            self.add_error("category", f"This category cannot be used for {kind} transactions.")
+            self.add_error("category", f"Esta categoria não pode ser usada em {KIND_PLURAL[kind]}.")
         return cleaned
 
     def save(self, commit=True):
@@ -505,8 +621,8 @@ class RecurringForm(forms.ModelForm):
 
 
 class RegisterForm(UserCreationForm):
-    full_name = forms.CharField(max_length=100, label="Full name")
-    email = forms.EmailField(max_length=254)
+    full_name = forms.CharField(max_length=100, label="Nome completo")
+    email = forms.EmailField(max_length=254, label="E-mail")
 
     class Meta:
         model = User
@@ -518,18 +634,21 @@ class RegisterForm(UserCreationForm):
             "data-strength": "1", "data-similar-to": "id_full_name id_username id_email"})
         password_widget_attrs(self.fields["password2"], **{"data-match": "id_password1"})
         self.fields["username"].help_text = ""
+        self.fields["username"].label = "Nome de usuário"
+        self.fields["password1"].label = "Senha"
+        self.fields["password2"].label = "Confirme a senha"
         self.fields["username"].widget.attrs["maxlength"] = "150"
 
     def clean_username(self):
         username = unicodedata.normalize("NFKC", self.cleaned_data["username"]).strip().lower()
         if User.objects.filter(username__iexact=username).exists():
-            raise forms.ValidationError("That username is already taken.")
+            raise forms.ValidationError("Esse nome de usuário já está em uso.")
         return username
 
     def clean_email(self):
         email = self.cleaned_data["email"].strip().lower()
         if User.objects.filter(email__iexact=email).exists():
-            raise forms.ValidationError("An account with this email already exists.")
+            raise forms.ValidationError("Já existe uma conta com este e-mail.")
         return email
 
     def save(self, commit=True):
@@ -542,18 +661,21 @@ class RegisterForm(UserCreationForm):
         return user
 
 
-NEGATIVE_CHOICES = (("", "Use the site default"), ("yes", "Allow"), ("no", "Block with an error"))
+NEGATIVE_CHOICES = (("", "Usar o padrão do sistema"), ("yes", "Permitir"), ("no", "Bloquear com erro"))
 
 
 class SettingsForm(forms.Form):
-    display_name = forms.CharField(max_length=100, label="Display name")
-    currency_code = forms.CharField(min_length=3, max_length=3, label="Currency code")
-    currency_symbol = forms.CharField(max_length=5, label="Currency symbol")
-    number_format = forms.ChoiceField(choices=NUMBER_FORMATS, label="Number format")
-    allow_negative_balance = forms.ChoiceField(choices=NEGATIVE_CHOICES, required=False, label="Overdrafts")
-    secondary_currency_code = forms.CharField(max_length=3, required=False, label="Also show amounts in")
+    display_name = forms.CharField(max_length=100, label="Nome de exibição")
+    currency_code = forms.CharField(min_length=3, max_length=3, label="Código da moeda")
+    currency_symbol = forms.CharField(max_length=5, label="Símbolo da moeda")
+    number_format = forms.ChoiceField(choices=NUMBER_FORMATS, label="Formato numérico")
+    allow_negative_balance = forms.ChoiceField(choices=NEGATIVE_CHOICES, required=False, label="Saldo negativo")
+    secondary_currency_code = forms.CharField(max_length=3, required=False, label="Mostrar também em")
     secondary_rate = forms.DecimalField(max_digits=16, decimal_places=6, min_value=Decimal("0.000001"), required=False,
-                                        label="Exchange rate")
+                                        label="Cotação")
+    default_account = forms.ModelChoiceField(queryset=Account.objects.none(), required=False, label="Conta padrão",
+                                             empty_label="A primeira da lista", error_messages=ACCOUNT_ERROR)
+    card_date_mode = forms.ChoiceField(choices=CARD_DATE_MODES, required=False, label="Compras no cartão de crédito contam")
 
     def __init__(self, *args, user, **kwargs):
         self.user = user
@@ -567,34 +689,37 @@ class SettingsForm(forms.Form):
             "allow_negative_balance": pref,
             "secondary_currency_code": profile.secondary_currency_code,
             "secondary_rate": profile.secondary_rate,
+            "default_account": profile.default_account_id,
+            "card_date_mode": profile.card_date_mode,
         })
         super().__init__(*args, **kwargs)
+        self.fields["default_account"].queryset = Account.objects.filter(user=user, archived=False)
 
     def clean_secondary_currency_code(self):
         code = self.cleaned_data.get("secondary_currency_code", "").strip().upper()
         if code and not (code.isascii() and code.isalpha() and len(code) == 3):
-            raise forms.ValidationError("Use a three letter code such as USD.")
+            raise forms.ValidationError("Use um código de três letras, como USD.")
         return code
 
     def clean(self):
         cleaned = super().clean()
         code, rate = cleaned.get("secondary_currency_code"), cleaned.get("secondary_rate")
         if code and not rate:
-            self.add_error("secondary_rate", "Enter how many units of that currency one unit of your main currency is worth.")
+            self.add_error("secondary_rate", "Informe quantas unidades dessa moeda vale uma unidade da sua moeda principal.")
         if rate and not code:
-            self.add_error("secondary_currency_code", "Enter the currency code for this rate.")
+            self.add_error("secondary_currency_code", "Informe o código da moeda desta cotação.")
         return cleaned
 
     def clean_currency_code(self):
         code = self.cleaned_data["currency_code"].strip().upper()
         if not (code.isascii() and code.isalpha()):
-            raise forms.ValidationError("Use a three letter code such as NPR or USD.")
+            raise forms.ValidationError("Use um código de três letras, como BRL ou USD.")
         return code
 
     def clean_currency_symbol(self):
         symbol = self.cleaned_data["currency_symbol"].strip()
         if not symbol or any(unicodedata.category(c).startswith("C") or c.isspace() for c in symbol):
-            raise forms.ValidationError("Enter 1 to 5 visible characters.")
+            raise forms.ValidationError("Informe de 1 a 5 caracteres visíveis.")
         return symbol
 
     def save(self):
@@ -606,6 +731,8 @@ class SettingsForm(forms.Form):
         profile.allow_negative_balance = {"": None, "yes": True, "no": False}[data["allow_negative_balance"] or ""]
         profile.secondary_currency_code = data.get("secondary_currency_code", "")
         profile.secondary_rate = data.get("secondary_rate") if profile.secondary_currency_code else None
+        profile.default_account = data.get("default_account")
+        profile.card_date_mode = data.get("card_date_mode") or profile.card_date_mode
         profile.save()
         self.user.first_name, self.user.last_name = split_name(data["display_name"])
         self.user.save(update_fields=["first_name", "last_name"])
@@ -618,46 +745,97 @@ class ChangePasswordForm(PasswordChangeForm):
         user = kwargs.get("user") or (args[0] if args else None)
         words = " ".join(filter(None, [getattr(user, "username", ""), getattr(user, "email", ""),
                                        getattr(user, "first_name", ""), getattr(user, "last_name", "")]))
+        self.fields["old_password"].label = "Senha atual"
+        self.fields["new_password1"].label = "Nova senha"
+        self.fields["new_password2"].label = "Confirme a nova senha"
         password_widget_attrs(self.fields["new_password1"], **{"data-strength": "1", "data-similar-words": words})
         password_widget_attrs(self.fields["new_password2"], **{"data-match": "id_new_password1"})
 
 
 class ImportForm(forms.Form):
-    file = forms.FileField(label="CSV file")
+    file = forms.FileField(label="Arquivo CSV")
 
     def clean_file(self):
         upload = self.cleaned_data["file"]
         if upload.size > settings.FILE_UPLOAD_MAX_MEMORY_SIZE // 2:
-            raise forms.ValidationError("The file is too large (limit 512 KB).")
+            raise forms.ValidationError("O arquivo é grande demais (limite de 512 KB).")
         if not upload.name.lower().endswith(".csv"):
-            raise forms.ValidationError("Upload a .csv file.")
+            raise forms.ValidationError("Envie um arquivo .csv.")
         return upload
+
+
+class CardInvoiceForm(forms.Form):
+    """Upload of a credit card statement (PDF or CSV)."""
+
+    DATE_MODES = (
+        ("due", "Na data de vencimento da fatura (o mês em que você paga)"),
+        ("purchase", "Na data de cada compra"),
+        ("invoice", "Na data de fechamento da fatura"),
+    )
+
+    file = forms.FileField(label="Fatura (PDF ou CSV)", required=False)
+    pasted = forms.CharField(
+        label="Ou cole o CSV que a IA devolveu", required=False, max_length=300_000,
+        widget=forms.Textarea(attrs={"rows": 5, "spellcheck": "false", "placeholder": "# emissor: ...\ndata;descricao;valor;..."}),
+    )
+    account = forms.ModelChoiceField(
+        label="Cartão", queryset=Account.objects.none(), required=False,
+        empty_label="Descobrir pelo banco da fatura (cria o cartão se precisar)",
+    )
+    new_account_name = forms.CharField(label="Ou crie um cartão novo com o nome", max_length=60, required=False)
+    # Not shown any more: the rule in Settings ("Compras no cartão de crédito contam") decides.
+    date_mode = forms.ChoiceField(label="Lançar as despesas", choices=DATE_MODES, initial="due",
+                                  widget=forms.RadioSelect, required=False)
+
+    def __init__(self, *args, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["account"].queryset = Account.objects.filter(user=user, type="credit", archived=False)
+
+    def clean(self):
+        cleaned = super().clean()
+        if not cleaned.get("file") and not (cleaned.get("pasted") or "").strip() and not self.errors:
+            self.add_error("file", "Escolha o arquivo da fatura ou cole o CSV no campo abaixo.")
+        return cleaned
+
+    def clean_file(self):
+        upload = self.cleaned_data["file"]
+        if not upload:
+            return upload
+        name = upload.name.lower()
+        if not name.endswith((".pdf", ".csv", ".txt")):
+            raise forms.ValidationError("Envie a fatura em PDF ou CSV.")
+        if upload.size > 10 * 1024 * 1024:
+            raise forms.ValidationError("O arquivo é grande demais (limite de 10 MB).")
+        return upload
+
+    def clean_new_account_name(self):
+        return " ".join(self.cleaned_data["new_account_name"].split())
 
 
 class SetupForm(forms.Form):
     """First-run setup: currency, accounts, starter categories, optional budget and sample data."""
 
-    currency_code = forms.CharField(min_length=3, max_length=3, label="Currency code")
-    currency_symbol = forms.CharField(max_length=5, label="Currency symbol")
-    number_format = forms.ChoiceField(choices=NUMBER_FORMATS, label="Number format")
-    main_name = forms.CharField(max_length=60, label="Main account name")
-    main_opening = _signed_amount(required=False, label="Current balance")
-    cash = forms.BooleanField(required=False, label="I also keep cash")
-    cash_opening = _signed_amount(required=False, label="Cash on hand")
-    wallet = forms.BooleanField(required=False, label="I use a mobile wallet")
-    wallet_opening = _signed_amount(required=False, label="Wallet balance")
+    currency_code = forms.CharField(min_length=3, max_length=3, label="Código da moeda")
+    currency_symbol = forms.CharField(max_length=5, label="Símbolo da moeda")
+    number_format = forms.ChoiceField(choices=NUMBER_FORMATS, label="Formato numérico")
+    main_name = forms.CharField(max_length=60, label="Nome da conta principal")
+    main_opening = _signed_amount(required=False, label="Saldo atual")
+    cash = forms.BooleanField(required=False, label="Também tenho dinheiro em espécie")
+    cash_opening = _signed_amount(required=False, label="Dinheiro em mãos")
+    wallet = forms.BooleanField(required=False, label="Uso carteira digital (Mercado Pago, PicPay...)")
+    wallet_opening = _signed_amount(required=False, label="Saldo da carteira digital")
     categories = forms.MultipleChoiceField(
-        choices=[(name, name) for name, _, _, _ in services.DEFAULT_CATEGORIES], required=False, label="Starter categories")
+        choices=[(name, name) for name, _, _, _ in services.DEFAULT_CATEGORIES], required=False, label="Categorias iniciais")
     monthly_budget = forms.DecimalField(max_digits=12, decimal_places=2, min_value=MIN_AMOUNT, max_value=MAX_AMOUNT,
-                                        required=False, label="Monthly spending budget")
-    sample_data = forms.BooleanField(required=False, label="Fill the app with sample data so I can look around")
+                                        required=False, label="Orçamento mensal de gastos")
+    sample_data = forms.BooleanField(required=False, label="Preencher o app com dados de exemplo para eu explorar")
 
     def __init__(self, *args, user, **kwargs):
         self.user = user
         profile = services.get_profile(user)
         kwargs.setdefault("initial", {
             "currency_code": profile.currency_code, "currency_symbol": profile.currency_symbol,
-            "number_format": profile.number_format, "main_name": "Main account", "main_opening": 0,
+            "number_format": profile.number_format, "main_name": "Conta principal", "main_opening": 0,
             "categories": [name for name, _, _, _ in services.DEFAULT_CATEGORIES],
         })
         super().__init__(*args, **kwargs)
@@ -684,11 +862,11 @@ class SetupForm(forms.Form):
                 main.name, main.opening_balance = d["main_name"], d.get("main_opening") or services.ZERO
                 main.save()
                 if d["cash"]:
-                    Account.objects.get_or_create(user=self.user, name__iexact="Cash",
-                                                  defaults={"name": "Cash", "type": "cash", "opening_balance": d.get("cash_opening") or 0})
+                    Account.objects.get_or_create(user=self.user, name__iexact="Dinheiro",
+                                                  defaults={"name": "Dinheiro", "type": "cash", "opening_balance": d.get("cash_opening") or 0})
                 if d["wallet"]:
-                    Account.objects.get_or_create(user=self.user, name__iexact="Mobile wallet",
-                                                  defaults={"name": "Mobile wallet", "type": "wallet", "opening_balance": d.get("wallet_opening") or 0})
+                    Account.objects.get_or_create(user=self.user, name__iexact="Carteira digital",
+                                                  defaults={"name": "Carteira digital", "type": "wallet", "opening_balance": d.get("wallet_opening") or 0})
                 keep = set(d["categories"])
                 Category.objects.filter(user=self.user, name__in=[n for n, *_ in services.DEFAULT_CATEGORIES if n not in keep],
                                         transactions__isnull=True).delete()

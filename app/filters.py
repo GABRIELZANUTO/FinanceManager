@@ -17,8 +17,8 @@ SORT_FIELDS = {
 }
 DEFAULT_SORT = "-date"
 SORT_OPTIONS = (
-    ("-date", "Newest first"), ("date", "Oldest first"), ("-amount", "Largest first"), ("amount", "Smallest first"),
-    ("name", "Description A-Z"), ("category", "Category A-Z"),
+    ("-date", "Mais recentes primeiro"), ("date", "Mais antigas primeiro"), ("-amount", "Maiores valores primeiro"),
+    ("amount", "Menores valores primeiro"), ("name", "Descrição de A a Z"), ("category", "Categoria de A a Z"),
 )
 
 

@@ -1,91 +1,126 @@
 {% extends "app/base.html" %}
 {% load static %}
-{% block title %}Analytics{% endblock %}
-{% block heading %}Analytics{% endblock %}
-{% block actions %}<a class="btn" href="{% url 'reports' %}">{% icon "file-text" %}Reports</a>{% endblock %}
+{% block title %}Análises{% endblock %}
+{% block heading %}Análises{% endblock %}
+{% block actions %}<a class="btn" href="{% url 'reports' %}">{% icon "file-text" %}Relatórios</a>{% endblock %}
 {% block content %}
+<section class="card plan" id="plano" aria-labelledby="plan-h" data-today="{{ today|date:'Y-m-d' }}">
+  <div class="card-head plan-head">
+    <h2 id="plan-h">Planejamento do mês</h2>
+    <div class="plan-nav">
+      <button class="icon-btn" type="button" id="plan-prev" aria-label="Mês anterior">{% icon "chevron-left" %}</button>
+      <strong id="plan-month" aria-live="polite"></strong>
+      <button class="icon-btn" type="button" id="plan-next" aria-label="Próximo mês">{% icon "chevron-right" %}</button>
+      <button class="btn btn-sm" type="button" id="plan-current">Este mês</button>
+      <button class="btn btn-sm btn-primary" type="button" id="plan-add">{% icon "plus" %}Adicionar lançamento</button>
+    </div>
+  </div>
+  <p class="muted small">Tudo o que já aconteceu e o que ainda vai vencer no mês: recorrências, parcelas, compras do cartão e lançamentos com data futura. As faturas aparecem à parte porque as compras do cartão já estão nas despesas.</p>
+  <div id="plan-body" class="loading">Carregando...</div>
+</section>
+
+<dialog id="pay-dialog" aria-labelledby="pay-title">
+  <form id="pay-form" method="dialog" novalidate>
+    <div class="dialog-head"><h2 id="pay-title">Pagar fatura</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Fechar">{% icon "x" %}</button></div>
+    <div class="dialog-body">
+      <div class="form-error" data-form-error role="alert" hidden></div>
+      <p class="muted small">Registra uma transferência da conta escolhida para o cartão. Pode ser agendada para o dia do vencimento.</p>
+      <input type="hidden" name="to_account">
+      <div class="form-grid">
+        <div class="field wide"><label for="pay-from">Pagar com</label><select id="pay-from" name="from_account">{% for a in accounts %}{% if a.type != "credit" %}<option value="{{ a.pk }}">{{ a.name }}</option>{% endif %}{% endfor %}</select><p class="field-error" data-error-for="from_account"></p></div>
+        <div class="field"><label for="pay-amount">Valor</label><input id="pay-amount" name="amount" type="text" data-money inputmode="decimal" required><p class="field-error" data-error-for="amount"></p></div>
+        <div class="field"><label for="pay-date">Data</label><input id="pay-date" name="date" type="date" required><p class="field-error" data-error-for="date"></p></div>
+        <div class="field wide"><label for="pay-note">Observação</label><input id="pay-note" name="note" type="text" maxlength="200"><p class="field-error" data-error-for="note"></p></div>
+      </div>
+    </div>
+    <div class="dialog-foot"><button class="btn" type="button" data-close>Cancelar</button><button class="btn btn-primary" type="submit" data-submit>Registrar pagamento</button></div>
+  </form>
+</dialog>
+
 <form class="card range-bar" id="range-form" data-start="{{ start|date:'Y-m-d' }}" data-end="{{ end|date:'Y-m-d' }}">
-  <div class="field"><label for="r-start">From</label><input id="r-start" name="start" type="date" required></div>
-  <div class="field"><label for="r-end">To</label><input id="r-end" name="end" type="date" required></div>
-  <div class="field"><label for="r-preset">Quick range</label>
-    <select id="r-preset"><option value="">Custom</option><option value="month">This month</option><option value="last-month">Last month</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="year">This year</option><option value="365">Last 12 months</option></select></div>
-  <div class="field"><label for="r-category">Category</label>
-    <select id="r-category" name="category"><option value="">All</option>{% for c in categories %}<option value="{{ c.pk }}">{{ c.full_name }}</option>{% endfor %}</select></div>
+  <div class="field"><label for="r-start">De</label><input id="r-start" name="start" type="date" required></div>
+  <div class="field"><label for="r-end">Até</label><input id="r-end" name="end" type="date" required></div>
+  <div class="field"><label for="r-preset">Período rápido</label>
+    <select id="r-preset"><option value="">Personalizado</option><option value="month">Este mês</option><option value="last-month">Mês passado</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="year">Este ano</option><option value="365">Últimos 12 meses</option></select></div>
+  <div class="field"><label for="r-category">Categoria</label>
+    <select id="r-category" name="category"><option value="">Todas</option>{% for c in categories %}<option value="{{ c.pk }}">{{ c.full_name }}</option>{% endfor %}</select></div>
   <div class="field"><label for="r-tag">Tag</label>
-    <select id="r-tag" name="tag"><option value="">All</option>{% for t in tag_list %}<option value="{{ t.pk }}">{{ t.name }}</option>{% endfor %}</select></div>
+    <select id="r-tag" name="tag"><option value="">Todas</option>{% for t in tag_list %}<option value="{{ t.pk }}">{{ t.name }}</option>{% endfor %}</select></div>
   <p class="muted small range-note" id="range-note"></p>
 </form>
 <div id="analytics-error" hidden></div>
 <div class="grid cols-4" id="totals"></div>
 
 <div class="card chart-card" data-chart-card="monthly">
-  <div class="card-head"><h2>Income and expenses by month</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
-  <div class="legend"><span><i class="l-income"></i>Income</span><span><i class="l-expense"></i>Expenses</span></div>
+  <div class="card-head"><h2>Receitas e despesas por mês</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
+  <div class="legend"><span><i class="l-income"></i>Receitas</span><span><i class="l-expense"></i>Despesas</span></div>
   <div class="chart-box" data-chart></div>
 </div>
 <div class="grid cols-2">
   <div class="card chart-card" data-chart-card="netflow">
-    <div class="card-head"><h2>Net cash flow</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
+    <div class="card-head"><h2>Fluxo de caixa líquido</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
     <div class="chart-box" data-chart></div>
   </div>
   <div class="card chart-card" data-chart-card="stacked">
-    <div class="card-head"><h2>Spending by category over time</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
+    <div class="card-head"><h2>Gastos por categoria ao longo do tempo</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
     <div class="chart-box" data-chart></div>
   </div>
 </div>
 <div class="grid cols-2">
   <div class="card chart-card" data-chart-card="donut">
-    <div class="card-head"><h2>Expenses by category</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
+    <div class="card-head"><h2>Despesas por categoria</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
     <div class="chart-box" data-chart></div>
   </div>
   <div class="card chart-card" data-chart-card="ranked">
-    <div class="card-head"><h2>Ranked categories</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
+    <div class="card-head"><h2>Ranking de categorias</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
     <div class="chart-box" data-chart></div>
   </div>
 </div>
 <div class="card chart-card" data-chart-card="sparks">
-  <div class="card-head"><h2>Category trends, last 12 months</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
+  <div class="card-head"><h2>Tendência por categoria, últimos 12 meses</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
   <div class="chart-box" data-chart></div>
 </div>
 <div class="card chart-card" data-chart-card="heatmap">
-  <div class="card-head"><h2>Daily spending, last 26 weeks</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
+  <div class="card-head"><h2>Gastos diários, últimas 26 semanas</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
   <div class="chart-box" data-chart></div>
 </div>
 <div class="grid cols-2">
   <div class="card chart-card" data-chart-card="weekday">
-    <div class="card-head"><h2>Spending by weekday</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
+    <div class="card-head"><h2>Gastos por dia da semana</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
     <div class="chart-box" data-chart></div>
   </div>
   <div class="card chart-card" data-chart-card="cumulative">
-    <div class="card-head"><h2>Month spending against budget</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
-    <div class="legend"><span><i class="l-expense"></i>Spent so far</span><span><i class="l-line"></i>Budget</span></div>
+    <div class="card-head"><h2>Gastos do mês em relação ao orçamento</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
+    <div class="legend"><span><i class="l-expense"></i>Gasto até agora</span><span><i class="l-line"></i>Orçamento</span></div>
     <div class="chart-box" data-chart></div>
   </div>
 </div>
 <div class="grid cols-2">
   <div class="card chart-card" data-chart-card="budget">
-    <div class="card-head"><h2>Budget and actual</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
-    <div class="legend"><span><i class="l-line"></i>Budget</span><span><i class="l-expense"></i>Spent</span></div>
+    <div class="card-head"><h2>Orçado e realizado</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
+    <div class="legend"><span><i class="l-line"></i>Orçado</span><span><i class="l-expense"></i>Gasto</span></div>
     <div class="chart-box" data-chart></div>
   </div>
   <div class="card chart-card" data-chart-card="goals">
-    <div class="card-head"><h2>Savings goals</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
+    <div class="card-head"><h2>Metas de poupança</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
     <div class="chart-box" data-chart></div>
   </div>
 </div>
 <div class="card chart-card" data-chart-card="balance">
-  <div class="card-head"><h2>Balance over time</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
+  <div class="card-head"><h2>Saldo ao longo do tempo</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
   <div class="chart-box" data-chart></div>
 </div>
 <div class="grid cols-2">
   <div class="card chart-card" data-chart-card="payees">
-    <div class="card-head"><h2>Top payees</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
+    <div class="card-head"><h2>Principais favorecidos</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
     <div class="chart-box" data-chart></div>
   </div>
   <div class="card chart-card">
-    <div class="card-head"><h2>Top 5 expenses</h2></div>
+    <div class="card-head"><h2>5 maiores despesas</h2></div>
     <div id="top-list"></div>
   </div>
 </div>
 {% endblock %}
-{% block scripts %}<script type="module" src="{% static 'app/js/analytics.js' %}"></script>{% endblock %}
+{% block scripts %}<script type="module" src="{% static 'app/js/analytics.js' %}?v={{ asset_version }}"></script>
+<script type="module" src="{% static 'app/js/plan.js' %}?v={{ asset_version }}"></script>{% endblock %}

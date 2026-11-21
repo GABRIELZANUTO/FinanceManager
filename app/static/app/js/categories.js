@@ -4,7 +4,7 @@ import {
 } from './core.js';
 import { catLabel } from './parts.js';
 
-const KIND = { both: 'Income and expense', expense: 'Expense only', income: 'Income only' };
+const KIND = { both: 'Receita e despesa', expense: 'Só despesa', income: 'Só receita' };
 
 /* ---------- categories ---------- */
 
@@ -29,25 +29,25 @@ function ordered() {
 
 function row(c) {
   return h('tr', {},
-    h('td', { 'data-label': 'Name', class: c.depth ? 'sub-cat' : '' }, catLabel(c, 'span')),
-    h('td', { 'data-label': 'Used for' }, h('span', { class: 'tag', text: KIND[c.kind] })),
-    h('td', { class: 'num', 'data-label': 'Transactions', text: String(c.count) }),
+    h('td', { 'data-label': 'Nome', class: c.depth ? 'sub-cat' : '' }, catLabel(c, 'span')),
+    h('td', { 'data-label': 'Usada para' }, h('span', { class: 'tag', text: KIND[c.kind] })),
+    h('td', { class: 'num', 'data-label': 'Transações', text: String(c.count) }),
     h('td', { class: 'row-actions' },
-      h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Edit ${c.name}`, onclick: () => openEdit(c) }, icon('pencil')),
-      h('button', { class: 'icon-btn danger', type: 'button', 'aria-label': `Delete ${c.name}`, onclick: () => openDelete(c) }, icon('trash-2'))));
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Editar ${c.name}`, onclick: () => openEdit(c) }, icon('pencil')),
+      h('button', { class: 'icon-btn danger', type: 'button', 'aria-label': `Excluir ${c.name}`, onclick: () => openDelete(c) }, icon('trash-2'))));
 }
 
 function render() {
   if (!categories.length) {
     list.className = '';
-    list.replaceChildren(emptyState('No categories', 'Create a category to start recording transactions.'));
+    list.replaceChildren(emptyState('Nenhuma categoria', 'Crie uma categoria para começar a registrar transações.'));
     return;
   }
   list.className = 'table-wrap';
   list.replaceChildren(h('table', { class: 'table stack' },
-    h('caption', { class: 'sr-only', text: 'Categories' }),
-    h('thead', {}, h('tr', {}, h('th', { text: 'Name' }), h('th', { text: 'Used for' }), h('th', { class: 'num', text: 'Transactions' }),
-      h('th', {}, h('span', { class: 'sr-only', text: 'Actions' })))),
+    h('caption', { class: 'sr-only', text: 'Categorias' }),
+    h('thead', {}, h('tr', {}, h('th', { text: 'Nome' }), h('th', { text: 'Usada para' }), h('th', { class: 'num', text: 'Transações' }),
+      h('th', {}, h('span', { class: 'sr-only', text: 'Ações' })))),
     h('tbody', {}, ...ordered().map(row))));
 }
 
@@ -65,10 +65,10 @@ function openEdit(category) {
   editing = category;
   clearErrors(form);
   form.reset();
-  $('#cat-title').textContent = category ? 'Edit category' : 'New category';
+  $('#cat-title').textContent = category ? 'Editar categoria' : 'Nova categoria';
   const parent = form.elements.parent;
   const options = categories.filter((c) => !c.parent && (!category || c.id !== category.id));
-  parent.replaceChildren(h('option', { value: '', text: 'None (top level)' }), ...options.map((c) => h('option', { value: c.id, text: c.name })));
+  parent.replaceChildren(h('option', { value: '', text: 'Nenhuma (categoria principal)' }), ...options.map((c) => h('option', { value: c.id, text: c.name })));
   if (category) {
     form.elements.name.value = category.name;
     form.elements.kind.value = category.kind;
@@ -84,9 +84,9 @@ form.addEventListener('submit', async (event) => {
   clearErrors(form);
   try {
     await withBusy($('[data-submit]', form), () => api(
-      editing ? `/api/categories/${editing.id}/` : '/api/categories/', { method: 'POST', body: formData(form) }));
+      editing ? `/api/categories/${editing.id}/` : '/api/categories/', { method: 'POST', body: formData(form), version: editing && editing.version }));
     dialog.close();
-    toast(editing ? 'Category updated.' : 'Category added.');
+    toast(editing ? 'Categoria atualizada.' : 'Categoria adicionada.');
     await load();
     loadRules();
   } catch (error) { showErrors(form, error); }
@@ -100,10 +100,10 @@ function openDelete(category) {
   const needs = category.count > 0;
   $('#del-reassign').hidden = !needs;
   $('#del-message').textContent = needs
-    ? `“${category.name}” has ${category.count} transaction(s). Choose where they should go.`
-    : `Delete “${category.name}”? This cannot be undone.`;
+    ? `“${category.name}” tem ${category.count} transação(ões). Escolha para onde elas devem ir.`
+    : `Excluir “${category.name}”? Isso não pode ser desfeito.`;
   $('[data-submit]', delForm).disabled = needs && !others.length;
-  if (needs && !others.length) $('#del-message').textContent += ' Create another category first.';
+  if (needs && !others.length) $('#del-message').textContent += ' Crie outra categoria primeiro.';
   openDialog(delDialog, needs ? '#del-target' : '[data-submit]');
 }
 
@@ -113,9 +113,9 @@ delForm.addEventListener('submit', async (event) => {
   const target = $('#del-reassign').hidden ? '' : $('#del-target').value;
   try {
     await withBusy($('[data-submit]', delForm), () => api(
-      `/api/categories/${deleting.id}/${target ? `?reassign_to=${encodeURIComponent(target)}` : ''}`, { method: 'DELETE' }));
+      `/api/categories/${deleting.id}/${target ? `?reassign_to=${encodeURIComponent(target)}` : ''}`, { method: 'DELETE', version: deleting.version }));
     delDialog.close();
-    toast('Category deleted.');
+    toast('Categoria excluída.');
     await load();
     loadRules();
   } catch (error) {
@@ -138,16 +138,16 @@ let editingRule = null;
 function renderRules() {
   if (!rules.length) {
     ruleList.className = '';
-    ruleList.replaceChildren(emptyState('No rules yet', 'For example: description contains "cafe" goes to Dining out.'));
+    ruleList.replaceChildren(emptyState('Nenhuma regra ainda', 'Por exemplo: descrição contém "ifood" vai para Restaurantes.'));
     return;
   }
   ruleList.className = '';
   ruleList.replaceChildren(h('ul', { class: 'mini-list' }, ...rules.map((r) => h('li', { class: r.active ? '' : 'inactive' },
     h('span', {}, h('code', { text: r.pattern }), ' → ', catLabel(r.category, 'span'),
-      r.active ? null : h('span', { class: 'tag', text: 'Off' })),
+      r.active ? null : h('span', { class: 'tag', text: 'Desligada' })),
     h('span', { class: 'row-actions' },
-      h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Edit rule ${r.pattern}`, onclick: () => openRule(r) }, icon('pencil')),
-      h('button', { class: 'icon-btn danger', type: 'button', 'aria-label': `Delete rule ${r.pattern}`, onclick: () => removeRule(r) }, icon('trash-2')))))));
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Editar regra ${r.pattern}`, onclick: () => openRule(r) }, icon('pencil')),
+      h('button', { class: 'icon-btn danger', type: 'button', 'aria-label': `Excluir regra ${r.pattern}`, onclick: () => removeRule(r) }, icon('trash-2')))))));
 }
 
 async function loadRules() {
@@ -164,7 +164,7 @@ function openRule(rule) {
   editingRule = rule;
   clearErrors(ruleForm);
   ruleForm.reset();
-  $('#rule-title').textContent = rule ? 'Edit rule' : 'New rule';
+  $('#rule-title').textContent = rule ? 'Editar regra' : 'Nova regra';
   $('#rule-category').replaceChildren(...categories.map((c) => h('option', { value: c.id, text: c.full_name })));
   if (rule) {
     ruleForm.elements.pattern.value = rule.pattern;
@@ -180,19 +180,19 @@ ruleForm.addEventListener('submit', async (event) => {
   clearErrors(ruleForm);
   try {
     await withBusy($('[data-submit]', ruleForm), () => api(
-      editingRule ? `/api/rules/${editingRule.id}/` : '/api/rules/', { method: 'POST', body: formData(ruleForm) }));
+      editingRule ? `/api/rules/${editingRule.id}/` : '/api/rules/', { method: 'POST', body: formData(ruleForm), version: editingRule && editingRule.version }));
     ruleDialog.close();
-    toast('Rule saved.');
+    toast('Regra salva.');
     await loadRules();
   } catch (error) { showErrors(ruleForm, error); }
 });
 
 async function removeRule(rule) {
-  const ok = await confirmDialog({ title: 'Delete rule', message: `Delete the rule for “${rule.pattern}”?` });
+  const ok = await confirmDialog({ title: 'Excluir regra', message: `Excluir a regra de “${rule.pattern}”?` });
   if (!ok) return;
   try {
-    await api(`/api/rules/${rule.id}/`, { method: 'DELETE' });
-    toast('Rule deleted.');
+    await api(`/api/rules/${rule.id}/`, { method: 'DELETE', version: rule.version });
+    toast('Regra excluída.');
     await loadRules();
   } catch (error) { showError(error); }
 }
@@ -209,13 +209,13 @@ async function loadTags() {
     const { tags } = await api('/api/tags/');
     tagList.className = '';
     if (!tags.length) {
-      tagList.replaceChildren(emptyState('No tags yet', 'Add tags when you record a transaction.'));
+      tagList.replaceChildren(emptyState('Nenhuma tag ainda', 'Adicione tags ao registrar uma transação.'));
       return;
     }
     tagList.replaceChildren(h('ul', { class: 'mini-list' }, ...tags.map((t) => h('li', {},
-      h('span', {}, h('a', { class: 'tag-chip', href: `/transactions/?tag=${t.id}`, text: t.name }), h('span', { class: 'muted small', text: ` ${t.count} transaction(s)` })),
+      h('span', {}, h('a', { class: 'tag-chip', href: `/transactions/?tag=${t.id}`, text: t.name }), h('span', { class: 'muted small', text: ` ${t.count} transação(ões)` })),
       h('span', { class: 'row-actions' },
-        h('button', { class: 'icon-btn danger', type: 'button', 'aria-label': `Delete tag ${t.name}`, onclick: () => removeTag(t) }, icon('trash-2')))))));
+        h('button', { class: 'icon-btn danger', type: 'button', 'aria-label': `Excluir tag ${t.name}`, onclick: () => removeTag(t) }, icon('trash-2')))))));
   } catch (error) {
     tagList.className = '';
     tagList.replaceChildren(errorState(error.message, loadTags));
@@ -223,11 +223,11 @@ async function loadTags() {
 }
 
 async function removeTag(tag) {
-  const ok = await confirmDialog({ title: 'Delete tag', message: `Remove the tag “${tag.name}” from all transactions?` });
+  const ok = await confirmDialog({ title: 'Excluir tag', message: `Remover a tag “${tag.name}” de todas as transações?` });
   if (!ok) return;
   try {
-    await api(`/api/tags/${tag.id}/`, { method: 'DELETE' });
-    toast('Tag deleted.');
+    await api(`/api/tags/${tag.id}/`, { method: 'DELETE', version: tag.version });
+    toast('Tag excluída.');
     await loadTags();
   } catch (error) { showError(error); }
 }

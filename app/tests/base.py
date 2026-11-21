@@ -39,8 +39,17 @@ class AppTestCase(TestCase):
         self.client.force_login(self.user)
 
     # --- data helpers
+    # The default categories were translated to Portuguese; the tests still use the original names.
+    DEFAULT_NAMES = {
+        "Salary": "Salário", "Other income": "Outras receitas", "Groceries": "Mercado", "Rent": "Aluguel",
+        "Utilities": "Contas da casa", "Transport": "Transporte", "Dining out": "Restaurantes", "Health": "Saúde",
+        "Shopping": "Compras", "Other": "Outros",
+    }
+
     def cat(self, user=None, name="Groceries"):
-        return Category.objects.get(user=user or self.user, name=name)
+        user = user or self.user
+        found = Category.objects.filter(user=user, name=name).first()
+        return found or Category.objects.get(user=user, name=self.DEFAULT_NAMES.get(name, name))
 
     def account(self, user=None):
         return services.default_account(user or self.user)

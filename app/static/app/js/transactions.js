@@ -48,7 +48,7 @@ async function load(params, { push = true } = {}) {
     resetBulk();
   } catch (error) {
     if (error.name === 'AbortError') return;
-    results.replaceChildren(errorState('Could not load transactions. Check your connection.', () => load(params, { push })));
+    results.replaceChildren(errorState('Não foi possível carregar as transações. Verifique sua conexão.', () => load(params, { push })));
   } finally {
     results.removeAttribute('aria-busy');
   }
@@ -102,18 +102,19 @@ results.addEventListener('click', (event) => {
   const rec = event.target.closest('[data-bulk-reconcile]');
   if (rec) { bulkReconcile(rec.dataset.bulkReconcile === '1'); return; }
   const del = event.target.closest('[data-delete]');
-  if (del) { deleteOne(del.dataset.delete, del.dataset.name); return; }
+  if (del) { deleteOne(del.dataset.delete, del.dataset.name, del.dataset.version); return; }
+  if (event.target.closest('[data-bulk-date]')) { openBulkDate(); return; }
   if (event.target.closest('[data-bulk-delete]')) bulkDelete();
   else if (event.target.closest('[data-bulk-apply]')) bulkCategory();
 });
 
 
-async function deleteOne(id, name) {
-  const ok = await confirmDialog({ title: 'Delete transaction', message: `Delete “${name}”? You can undo this for a few seconds.` });
+async function deleteOne(id, name, version) {
+  const ok = await confirmDialog({ title: 'Excluir transação', message: `Excluir “${name}”? Você pode desfazer por alguns segundos.` });
   if (!ok) return;
   try {
-    await api(`/api/transactions/${id}/`, { method: 'DELETE' });
-    toast('Transaction deleted.', { action: { label: 'Undo', onClick: () => restore([id]) } });
+    await api(`/api/transactions/${id}/`, { method: 'DELETE', version: version ? Number(version) : undefined });
+    toast('Transação excluída.', { action: { label: 'Desfazer', onClick: () => restore([id]) } });
     await reload();
   } catch (error) { showError(error); }
 }
@@ -121,7 +122,7 @@ async function deleteOne(id, name) {
 async function restore(ids) {
   try {
     await api('/api/transactions/bulk/', { method: 'POST', body: { action: 'restore', ids } });
-    toast(ids.length === 1 ? 'Transaction restored.' : `${ids.length} transactions restored.`);
+    toast(ids.length === 1 ? 'Transação restaurada.' : `${ids.length} transações restauradas.`);
     await reload();
   } catch (error) { showError(error); }
 }
@@ -155,11 +156,11 @@ results.addEventListener('change', (event) => {
 async function bulkDelete() {
   const ids = selected();
   if (!ids.length) return;
-  const ok = await confirmDialog({ title: 'Delete transactions', message: `Delete ${ids.length} selected transaction(s)? You can undo this for a few seconds.` });
+  const ok = await confirmDialog({ title: 'Excluir transações', message: `Excluir ${ids.length} transação(ões) selecionada(s)? Você pode desfazer por alguns segundos.` });
   if (!ok) return;
   try {
     await api('/api/transactions/bulk/', { method: 'POST', body: { action: 'delete', ids } });
-    toast(`${ids.length} transaction(s) deleted.`, { action: { label: 'Undo', onClick: () => restore(ids) } });
+    toast(`${ids.length} transação(ões) excluída(s).`, { action: { label: 'Desfazer', onClick: () => restore(ids) } });
     await reload();
   } catch (error) { showError(error); }
 }
@@ -168,12 +169,61 @@ async function bulkCategory() {
   const ids = selected();
   const category = $('#bulk-category', results).value;
   if (!ids.length) return;
-  if (!category) { toast('Choose a category first.', { kind: 'warn' }); return; }
+  if (!category) { toast('Escolha uma categoria primeiro.', { kind: 'warn' }); return; }
   try {
     await api('/api/transactions/bulk/', { method: 'POST', body: { action: 'category', ids, category } });
-    toast(`Category changed for ${ids.length} transaction(s).`);
+    toast(`Categoria alterada em ${ids.length} transação(ões).`);
     await reload();
   } catch (error) { showError(error); }
+}
+
+/* ---------- bulk date change ---------- */
+
+const dateDialog = document.getElementById('date-dialog');
+const dateForm = document.getElementById('date-form');
+let dateIds = [];
+
+function openBulkDate() {
+  dateIds = selected();
+  if (!dateIds.length) return;
+  clearErrors(dateForm);
+  dateForm.reset();
+  $('[data-date-count]', dateForm).textContent = String(dateIds.length);
+  openDialog(dateDialog, '#bulk-date');
+}
+
+dateForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  clearErrors(dateForm);
+  const byDate = dateForm.elements.mode.value === 'date';
+  const body = { action: 'date', ids: dateIds };
+  if (byDate) {
+    if (!dateForm.elements.date.value) { showErrors(dateForm, { message: 'Escolha a nova data.', errors: { date: ['Escolha a nova data.'] } }); return; }
+    body.date = dateForm.elements.date.value;
+  } else {
+    body.shift_months = Number(dateForm.elements.shift_months.value);
+  }
+  try {
+    const data = await withBusy($('[data-submit]', dateForm), () => api('/api/transactions/bulk/', { method: 'POST', body }));
+    dateDialog.close();
+    toast(`Data alterada em ${data.moved} transação(ões).`);
+    await reload();
+  } catch (error) { showErrors(dateForm, error); }
+});
+wireDialog(dateDialog);
+
+/* ---------- phones: the filters beyond "Buscar" open on demand ---------- */
+const moreToggle = filters.querySelector('[data-filters-toggle]');
+function showMoreFilters(open) {
+  filters.classList.toggle('show-more', open);
+  moreToggle.setAttribute('aria-expanded', String(open));
+  moreToggle.querySelector('[data-filters-toggle-label]').textContent = open ? 'Menos filtros' : 'Mais filtros';
+}
+if (moreToggle) {
+  moreToggle.addEventListener('click', () => showMoreFilters(!filters.classList.contains('show-more')));
+  const active = [...new URLSearchParams(window.location.search).keys()]
+    .some((key) => !['q', 'sort', 'page', 'page_size'].includes(key));
+  showMoreFilters(active);
 }
 
 document.addEventListener('tx:changed', reload);
@@ -184,7 +234,7 @@ updateBulk();
 results.addEventListener('click', (event) => {
   const button = event.target.closest('[data-inline-category]');
   if (!button) return;
-  const select = h('select', { class: 'inline-select', 'aria-label': 'Category' });
+  const select = h('select', { class: 'inline-select', 'aria-label': 'Categoria' });
   const kind = button.dataset.kind;
   for (const option of $$('#tx-category option')) {
     if (!option.value) continue;
@@ -201,7 +251,7 @@ results.addEventListener('click', (event) => {
     if (save && select.value !== button.dataset.current) {
       try {
         await api('/api/transactions/bulk/', { method: 'POST', body: { action: 'category', ids: [Number(button.dataset.inlineCategory)], category: select.value } });
-        toast('Category updated.');
+        toast('Categoria atualizada.');
       } catch (error) { showError(error); }
     }
     reload();
@@ -222,7 +272,7 @@ let views = [];
 async function loadViews() {
   try {
     views = (await api('/api/views/')).views;
-    viewSelect.replaceChildren(h('option', { value: '', text: views.length ? 'Saved views' : 'No saved views yet' }),
+    viewSelect.replaceChildren(h('option', { value: '', text: views.length ? 'Filtros salvos' : 'Nenhum filtro salvo ainda' }),
       ...views.map((v) => h('option', { value: v.id, text: v.name })));
     viewDelete.hidden = true;
   } catch (error) { /* views are optional */ }
@@ -248,8 +298,8 @@ viewDelete.addEventListener('click', async () => {
   const view = views.find((v) => String(v.id) === viewSelect.value);
   if (!view) return;
   try {
-    await api(`/api/views/${view.id}/`, { method: 'DELETE' });
-    toast('View deleted.');
+    await api(`/api/views/${view.id}/`, { method: 'DELETE', version: view.version });
+    toast('Filtro salvo excluído.');
     loadViews();
   } catch (error) { showError(error); }
 });
@@ -267,7 +317,7 @@ viewForm.addEventListener('submit', async (event) => {
     await withBusy($('[data-submit]', viewForm), () => api('/api/views/', {
       method: 'POST', body: { name: viewForm.elements.name.value, query: currentQuery().toString() } }));
     viewDialog.close();
-    toast('View saved.');
+    toast('Filtro salvo.');
     loadViews();
   } catch (error) { showErrors(viewForm, error); }
 });
@@ -280,7 +330,7 @@ async function bulkReconcile(value) {
   if (!ids.length) return;
   try {
     await api('/api/transactions/bulk/', { method: 'POST', body: { action: value ? 'reconcile' : 'unreconcile', ids } });
-    toast(value ? 'Marked as reconciled.' : 'Reconciliation removed.');
+    toast(value ? 'Marcado como conciliado.' : 'Conciliação removida.');
     await reload();
     checkReconcile();
   } catch (error) { showError(error); }
@@ -293,9 +343,9 @@ async function checkReconcile() {
   try {
     const data = await api('/api/reconcile/', { query: { account: account.value } });
     const statement = parseMoney($('#rec-balance').value);
-    if (statement === '') { out.textContent = `Reconciled balance so far: ${formatMoney(data.cleared)}. ${data.unreconciled} item(s) not yet reconciled.`; return; }
+    if (statement === '') { out.textContent = `Saldo conciliado até agora: ${formatMoney(data.cleared)}. ${data.unreconciled} item(ns) ainda não conciliado(s).`; return; }
     const diff = Math.round((Number(statement) - Number(data.cleared)) * 100) / 100;
-    out.textContent = diff === 0 ? 'Matches your statement.' : `Difference from your statement: ${formatMoney(diff)}. ${data.unreconciled} item(s) not yet reconciled.`;
+    out.textContent = diff === 0 ? 'Confere com o seu extrato.' : `Diferença em relação ao extrato: ${formatMoney(diff)}. ${data.unreconciled} item(ns) ainda não conciliado(s).`;
     out.className = diff === 0 ? 'pos' : 'neg';
   } catch (error) { out.textContent = error.message; }
 }

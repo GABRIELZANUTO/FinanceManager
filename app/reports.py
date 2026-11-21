@@ -7,16 +7,16 @@ from django.db.models.functions import TruncMonth, TruncYear
 
 from . import services
 from .csvio import safe_cell
-from .models import Account, Transaction, Transfer
+from .models import Account, LedgerEntry, Transaction, Transfer
 from .services import ZERO, add_months, month_end, month_start, q2
 
 PRESETS = (
-    ("this_month", "This month"), ("last_month", "Last month"), ("quarter", "This quarter"),
-    ("year", "This year"), ("last_year", "Last year"), ("custom", "Custom range"),
+    ("this_month", "Este mês"), ("last_month", "Mês passado"), ("quarter", "Este trimestre"),
+    ("year", "Este ano"), ("last_year", "Ano passado"), ("custom", "Período personalizado"),
 )
 REPORTS = (
-    ("income_statement", "Income statement"), ("categories", "Category breakdown"), ("trend", "Trend"),
-    ("net_worth", "Net worth"), ("payees", "Top payees"), ("tags", "Tags"), ("cash_flow", "Cash flow by account"),
+    ("income_statement", "Demonstrativo de resultados"), ("categories", "Despesas por categoria"), ("trend", "Tendência"),
+    ("net_worth", "Patrimônio"), ("payees", "Principais favorecidos"), ("tags", "Tags"), ("cash_flow", "Fluxo de caixa por conta"),
 )
 MAX_SPAN_DAYS = 3660
 
@@ -142,7 +142,9 @@ def build(user, start, end):
         t_in = Transfer.objects.filter(user=user, to_account=account, date__gte=start, date__lte=end).aggregate(t=Sum("amount"))["t"]
         t_out = Transfer.objects.filter(user=user, from_account=account, date__gte=start, date__lte=end).aggregate(t=Sum("amount"))["t"]
         inflow, outflow = q2(tx["i"] or ZERO), q2(tx["e"] or ZERO)
-        t_in, t_out = q2(t_in or ZERO), q2(t_out or ZERO)
+        # Money lent, borrowed or paid back (debts module) moves like a transfer: not income nor expense.
+        d_in, d_out = _debt_flows(account, start, end)
+        t_in, t_out = q2((t_in or ZERO) + d_in), q2((t_out or ZERO) + d_out)
         cash_flow.append({"name": account.name, "opening": before, "inflow": inflow, "outflow": outflow,
                           "transfers_in": t_in, "transfers_out": t_out,
                           "closing": before + inflow - outflow + t_in - t_out})
@@ -154,12 +156,27 @@ def build(user, start, end):
     }
 
 
+def _debt_flows(account, start=None, end=None, before=None):
+    """(money in, money out) of an account through debt entries in a period."""
+    qs = LedgerEntry.objects.filter(account=account, planned=False)
+    if start:
+        qs = qs.filter(date__gte=start)
+    if end:
+        qs = qs.filter(date__lte=end)
+    if before:
+        qs = qs.filter(date__lt=before)
+    sums = qs.aggregate(i=Sum("amount", filter=Q(amount__lt=0)), o=Sum("amount", filter=Q(amount__gt=0)))
+    return q2(-(sums["i"] or ZERO)), q2(sums["o"] or ZERO)
+
+
 def _account_before(account, day):
     tx = Transaction.objects.filter(account=account, date__lt=day).aggregate(
         i=Sum("amount", filter=Q(kind="income")), e=Sum("amount", filter=Q(kind="expense")))
     t_in = Transfer.objects.filter(to_account=account, date__lt=day).aggregate(t=Sum("amount"))["t"]
     t_out = Transfer.objects.filter(from_account=account, date__lt=day).aggregate(t=Sum("amount"))["t"]
-    return q2(account.opening_balance + (tx["i"] or ZERO) - (tx["e"] or ZERO) + (t_in or ZERO) - (t_out or ZERO))
+    d_in, d_out = _debt_flows(account, before=day)
+    return q2(account.opening_balance + (tx["i"] or ZERO) - (tx["e"] or ZERO) + (t_in or ZERO) - (t_out or ZERO)
+              + d_in - d_out)
 
 
 def _pct(value):
@@ -170,27 +187,27 @@ def csv_rows(report, data):
     """(header, rows) for one report; text cells are formula-safe."""
     s = data["statement"]
     if report == "income_statement":
-        rows = [["Income", safe_cell(r["name"]), f"{r['amount']:.2f}", f"{r['previous']:.2f}", _pct(r["change"])] for r in s["income"]]
-        rows.append(["Income", "Total income", f"{s['income_total']:.2f}", f"{s['previous']['income']:.2f}", _pct(s["changes"]["income"])])
-        rows += [["Expense", safe_cell(r["name"]), f"{r['amount']:.2f}", f"{r['previous']:.2f}", _pct(r["change"])] for r in s["expenses"]]
-        rows.append(["Expense", "Total expenses", f"{s['expense_total']:.2f}", f"{s['previous']['expense']:.2f}", _pct(s["changes"]["expense"])])
-        rows.append(["Net", "Net income", f"{s['net']:.2f}", f"{s['previous']['net']:.2f}", _pct(s["changes"]["net"])])
-        return ["section", "line", "amount", "previous_period", "change_percent"], rows
+        rows = [["Receitas", safe_cell(r["name"]), f"{r['amount']:.2f}", f"{r['previous']:.2f}", _pct(r["change"])] for r in s["income"]]
+        rows.append(["Receitas", "Total de receitas", f"{s['income_total']:.2f}", f"{s['previous']['income']:.2f}", _pct(s["changes"]["income"])])
+        rows += [["Despesas", safe_cell(r["name"]), f"{r['amount']:.2f}", f"{r['previous']:.2f}", _pct(r["change"])] for r in s["expenses"]]
+        rows.append(["Despesas", "Total de despesas", f"{s['expense_total']:.2f}", f"{s['previous']['expense']:.2f}", _pct(s["changes"]["expense"])])
+        rows.append(["Resultado", "Resultado líquido", f"{s['net']:.2f}", f"{s['previous']['net']:.2f}", _pct(s["changes"]["net"])])
+        return ["secao", "linha", "valor", "periodo_anterior", "variacao_percentual"], rows
     if report == "categories":
-        return (["category", "amount", "share_percent", "previous_period", "change_percent"],
+        return (["categoria", "valor", "participacao_percentual", "periodo_anterior", "variacao_percentual"],
                 [[safe_cell(r["name"]), f"{r['amount']:.2f}", r["share"], f"{r['previous']:.2f}", _pct(r["change"])] for r in data["categories"]])
     if report == "trend":
-        return (["period", "income", "expense", "net", "savings_rate_percent"],
+        return (["periodo", "receitas", "despesas", "resultado", "taxa_de_poupanca_percentual"],
                 [[r["period"], f"{r['income']:.2f}", f"{r['expense']:.2f}", f"{r['net']:.2f}", _pct(r["savings_rate"])] for r in data["trend"]])
     if report == "net_worth":
-        return ["month", "balance"], [[r["period"], f"{r['balance']:.2f}"] for r in data["net_worth"]]
+        return ["mes", "saldo"], [[r["period"], f"{r['balance']:.2f}"] for r in data["net_worth"]]
     if report == "payees":
-        return ["payee", "total", "transactions"], [[safe_cell(r["name"]), f"{r['amount']:.2f}", r["count"]] for r in data["payees"]]
+        return ["favorecido", "total", "transacoes"], [[safe_cell(r["name"]), f"{r['amount']:.2f}", r["count"]] for r in data["payees"]]
     if report == "tags":
-        return (["tag", "income", "expense", "transactions"],
+        return (["tag", "receitas", "despesas", "transacoes"],
                 [[safe_cell(r["name"]), f"{r['income']:.2f}", f"{r['expense']:.2f}", r["count"]] for r in data["tags"]])
     if report == "cash_flow":
-        return (["account", "opening", "income", "expenses", "transfers_in", "transfers_out", "closing"],
+        return (["conta", "saldo_inicial", "receitas", "despesas", "transferencias_recebidas", "transferencias_enviadas", "saldo_final"],
                 [[safe_cell(r["name"]), f"{r['opening']:.2f}", f"{r['inflow']:.2f}", f"{r['outflow']:.2f}",
                   f"{r['transfers_in']:.2f}", f"{r['transfers_out']:.2f}", f"{r['closing']:.2f}"] for r in data["cash_flow"]])
     raise KeyError(report)

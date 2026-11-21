@@ -1,0 +1,15 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.git/
+.github/
+.cache/
+docs/
+staticfiles/
+db.sqlite3
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+.env
+.env.example

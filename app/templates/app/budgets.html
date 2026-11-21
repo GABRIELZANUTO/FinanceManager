@@ -1,58 +1,58 @@
 {% extends "app/base.html" %}
 {% load static %}
-{% block title %}Budgets{% endblock %}
-{% block heading %}Budgets{% endblock %}
-{% block subheading %}<p class="sub">Monthly limits for the whole month and for each category.</p>{% endblock %}
+{% block title %}Orçamentos{% endblock %}
+{% block heading %}Orçamentos{% endblock %}
+{% block subheading %}<p class="sub">Limites mensais para o mês inteiro e para cada categoria.</p>{% endblock %}
 {% block actions %}
 <div class="month-switch" data-month="{{ month }}">
-  <button class="icon-btn" type="button" id="prev-month" aria-label="Previous month">{% icon "chevron-left" %}</button>
+  <button class="icon-btn" type="button" id="prev-month" aria-label="Mês anterior">{% icon "chevron-left" %}</button>
   <span class="label" id="month-label" aria-live="polite"></span>
-  <button class="icon-btn" type="button" id="next-month" aria-label="Next month">{% icon "chevron-right" %}</button>
+  <button class="icon-btn" type="button" id="next-month" aria-label="Próximo mês">{% icon "chevron-right" %}</button>
 </div>
-<button class="btn btn-primary" type="button" id="new-budget">{% icon "plus" %}Set budget</button>
+<button class="btn btn-primary" type="button" id="new-budget">{% icon "plus" %}Definir orçamento</button>
 {% endblock %}
 {% block content %}
 <div id="budget-error" hidden></div>
 <div id="copy-prompt" class="notice" hidden>
-  <span>There are no budgets for this month yet.</span>
-  <button class="btn btn-sm" type="button" id="copy-last">{% icon "copy" %}Copy last month's budget</button>
+  <span>Ainda não há orçamentos para este mês.</span>
+  <button class="btn btn-sm" type="button" id="copy-last">{% icon "copy" %}Copiar o orçamento do mês passado</button>
 </div>
-<section class="grid cols-4" id="budget-stats" aria-label="Budget summary"></section>
+<section class="grid cols-4" id="budget-stats" aria-label="Resumo do orçamento"></section>
 <div class="grid cols-2">
   <section class="card" aria-labelledby="bl-h">
-    <div class="card-head"><h2 id="bl-h">By category</h2></div>
-    <div id="budget-list" class="loading">Loading...</div>
+    <div class="card-head"><h2 id="bl-h">Por categoria</h2></div>
+    <div id="budget-list" class="loading">Carregando...</div>
   </section>
   <section class="card chart-card" aria-labelledby="bva-h">
-    <div class="card-head"><h2 id="bva-h">Budget and actual</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
-    <div class="legend"><span><i class="l-line"></i>Budget</span><span><i class="l-expense"></i>Spent</span></div>
+    <div class="card-head"><h2 id="bva-h">Orçado e realizado</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
+    <div class="legend"><span><i class="l-line"></i>Orçado</span><span><i class="l-expense"></i>Gasto</span></div>
     <div class="chart-box" id="bva-chart"></div>
   </section>
 </div>
 <section class="card" aria-labelledby="wk-h">
-  <div class="card-head"><h2 id="wk-h">Week by week</h2></div>
-  <div id="weekly" class="loading">Loading...</div>
+  <div class="card-head"><h2 id="wk-h">Semana a semana</h2></div>
+  <div id="weekly" class="loading">Carregando...</div>
 </section>
 <section class="card chart-card" aria-labelledby="hist-h">
-  <div class="card-head"><h2 id="hist-h">History</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Show table</button></div>
+  <div class="card-head"><h2 id="hist-h">Histórico</h2><button class="btn btn-sm" type="button" data-toggle-table aria-pressed="false">Mostrar tabela</button></div>
   <div class="chart-box" id="history-chart"></div>
 </section>
 
 <dialog id="budget-dialog" aria-labelledby="budget-title">
   <form id="budget-form" method="dialog" novalidate>
-    <div class="dialog-head"><h2 id="budget-title">Set budget</h2>
-      <button class="icon-btn" type="button" data-close aria-label="Close">{% icon "x" %}</button></div>
+    <div class="dialog-head"><h2 id="budget-title">Definir orçamento</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Fechar">{% icon "x" %}</button></div>
     <div class="dialog-body">
       <div class="form-error" data-form-error role="alert" hidden></div>
-      <div class="field"><label for="budget-category">Applies to</label><select id="budget-category" name="category"></select><p class="field-error" data-error-for="category"></p></div>
-      <div class="field"><label for="budget-amount">Limit for <span id="budget-month-name"></span></label><input id="budget-amount" name="amount" type="text" data-money inputmode="decimal" required><p class="field-error" data-error-for="amount"></p>
-        <p class="help">Setting a budget that already exists replaces it.</p></div>
+      <div class="field"><label for="budget-category">Aplica-se a</label><select id="budget-category" name="category"></select><p class="field-error" data-error-for="category"></p></div>
+      <div class="field"><label for="budget-amount">Limite para <span id="budget-month-name"></span></label><input id="budget-amount" name="amount" type="text" data-money inputmode="decimal" required><p class="field-error" data-error-for="amount"></p>
+        <p class="help">Definir um orçamento que já existe substitui o anterior.</p></div>
       <div class="form-grid">
-        <div class="field"><label for="budget-warn">Warn at (percent)</label><input id="budget-warn" name="warn_percent" type="number" min="1" max="99" value="80"><p class="field-error" data-error-for="warn_percent"></p></div>
-        <div class="field"><label class="check roll"><input type="checkbox" name="rollover"> Roll unspent money into the next month</label></div>
+        <div class="field"><label for="budget-warn">Avisar ao atingir (%)</label><input id="budget-warn" name="warn_percent" type="number" min="1" max="99" value="80"><p class="field-error" data-error-for="warn_percent"></p></div>
+        <div class="field"><label class="check roll"><input type="checkbox" name="rollover"> Levar o que sobrar para o mês seguinte</label></div>
       </div>
     </div>
-    <div class="dialog-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn btn-primary" type="submit" data-submit>Save</button></div>
+    <div class="dialog-foot"><button class="btn" type="button" data-close>Cancelar</button><button class="btn btn-primary" type="submit" data-submit>Salvar</button></div>
   </form>
 </dialog>
 {% endblock %}

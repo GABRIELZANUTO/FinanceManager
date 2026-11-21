@@ -1,0 +1,52 @@
+{% load static %}<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Política de privacidade - Finanças Pessoais</title>
+  <meta name="color-scheme" content="light">
+  <link rel="icon" href="{% static 'app/img/favicon.svg' %}" type="image/svg+xml">
+  <link rel="stylesheet" href="{% static 'app/css/app.css' %}">
+</head>
+<body>
+  <main class="auth" id="main">
+    <div class="auth-card wide">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">F</span>Finanças Pessoais</div>
+      <article class="card privacy">
+        <h1>Política de privacidade</h1>
+        <p class="muted small">Aplicativo Finanças Pessoais para Android. Última atualização: {{ updated|date:"d/m/Y" }}.</p>
+
+        <h2>Resumo</h2>
+        <p>Os seus dados financeiros ficam <strong>somente no seu celular</strong>. O aplicativo não tem cadastro, não envia os seus dados para servidores nossos ou de terceiros, não mostra anúncios e não usa ferramentas de rastreamento ou de análise de uso.</p>
+
+        <h2>Que dados o aplicativo guarda</h2>
+        <p>Tudo o que você mesmo registra: contas, transações, categorias, orçamentos, metas, contas recorrentes, dívidas e divisões, faturas de cartão importadas e as suas configurações. Esses dados ficam num banco de dados na área privada do aplicativo no seu aparelho, que outros aplicativos não conseguem ler.</p>
+
+        <h2>Que dados coletamos</h2>
+        <p><strong>Nenhum.</strong> Nós não recebemos, não vemos e não temos acesso a nenhuma informação sua. Também não compartilhamos nem vendemos dados, porque não os recebemos.</p>
+
+        <h2>Arquivos que você escolhe</h2>
+        <p>Quando você importa uma fatura (CSV) ou restaura um backup, o aplicativo lê apenas o arquivo que você escolheu, no próprio aparelho. Quando você exporta um CSV ou baixa um backup, o arquivo é salvo na pasta Downloads do seu celular; o que fazer com ele depois é decisão sua.</p>
+
+        <h2>Backup do Android</h2>
+        <p>Se o backup do Android estiver ligado no seu aparelho, o próprio sistema pode incluir os dados do aplicativo no backup da sua conta Google, para restaurá-los num celular novo. Esse backup é feito e controlado pelo Android e pela sua conta Google, não por nós; você pode desligá-lo nas configurações do celular.</p>
+
+        <h2>Permissões</h2>
+        <p>O aplicativo usa apenas a permissão de internet, necessária para o funcionamento interno dele no próprio aparelho (as telas conversam com o sistema que roda no celular). Ele não pede acesso a contatos, localização, câmera, microfone ou arquivos além dos que você escolher.</p>
+
+        <h2>Apagar os seus dados</h2>
+        <p>Em <strong>Configurações &gt; Apagar todos os meus dados</strong> você apaga tudo o que está no aplicativo. Desinstalar o aplicativo também apaga os dados do aparelho. Antes de apagar, você pode baixar um backup em <strong>Backup</strong>.</p>
+
+        <h2>Crianças</h2>
+        <p>O aplicativo é destinado a maiores de 18 anos e não é direcionado a crianças.</p>
+
+        <h2>Mudanças nesta política</h2>
+        <p>Se esta política mudar (por exemplo, com uma versão que sincronize dados entre aparelhos), a nova versão será publicada nesta página antes de valer, com a data de atualização acima.</p>
+
+        <h2>Contato</h2>
+        <p>{% if contact %}Dúvidas sobre privacidade: <a href="mailto:{{ contact }}">{{ contact }}</a>.{% else %}Dúvidas sobre privacidade: use o e-mail de contato informado na página do aplicativo na Google Play.{% endif %}</p>
+      </article>
+    </div>
+  </main>
+</body>
+</html>

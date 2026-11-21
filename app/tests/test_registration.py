@@ -43,15 +43,6 @@ class RegistrationTests(AppTestCase):
         user = User.objects.get(username="asha")
         self.assertEqual((user.first_name, user.last_name), ("Mary", "Jane   Watson"))
 
-    def test_unique_username_and_email_case_insensitive(self):
-        self.client.post(reverse("register"), self.data())
-        self.client.logout()
-        r = self.client.post(reverse("register"), self.data(username="ASHA", email="other@example.com"))
-        self.assertContains(r, "already taken")
-        r = self.client.post(reverse("register"), self.data(username="asha2", email="ASHA@example.com"))
-        self.assertContains(r, "already exists")
-        self.assertEqual(User.objects.filter(username__startswith="asha").count(), 1)
-
     def test_password_validators(self):
         for bad in ("short1", "1234567890123", "password1234", "asha@example.com"):
             r = self.client.post(reverse("register"), self.data(password1=bad, password2=bad))

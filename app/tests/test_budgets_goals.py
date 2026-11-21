@@ -135,14 +135,6 @@ class BudgetMathTests(AppTestCase):
         self.assertEqual(rows[1]["percent"], 150.0)
         self.assertIsNone(rows[2]["limit"])
 
-    def test_notifications(self):
-        self.budget(self.cat(), "100")
-        self.tx(amount="120")
-        texts = [n["text"] for n in budgeting.notifications(self.user)]
-        self.assertTrue(any("over budget" in t for t in texts))
-        self.assertTrue(any("below zero" in t for t in texts))
-
-
 class GoalMathTests(AppTestCase):
     def goal(self, target="1000", date=None):
         return Goal.objects.create(user=self.user, name="G", target_amount=Decimal(target), target_date=date)

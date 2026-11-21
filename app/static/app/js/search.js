@@ -50,7 +50,7 @@ const run = debounce(async () => {
   if (q.length < 2) {
     render([]);
     showDefaults();
-    hint.textContent = 'Type at least 2 characters. Try "food last month over 500".';
+    hint.textContent = 'Digite pelo menos 2 caracteres. Experimente "mercado mês passado acima de 500".';
     return;
   }
   hint.textContent = 'Searching...';
@@ -59,7 +59,7 @@ const run = debounce(async () => {
     const data = await api('/api/search/', { query: { q } });
     if (mine !== sequence) return;
     render(data.groups);
-    if (!data.groups.length) { hint.textContent = `No results for “${q}”.`; hint.hidden = false; }
+    if (!data.groups.length) { hint.textContent = `Nenhum resultado para “${q}”.`; hint.hidden = false; }
   } catch (error) {
     if (mine !== sequence) return;
     render([]);
@@ -82,12 +82,12 @@ function rememberItem(item) {
 async function showDefaults() {
   const groups = [];
   const recent = recents();
-  if (recent.length) groups.push({ type: 'Recent', items: recent });
+  if (recent.length) groups.push({ type: 'Recentes', items: recent });
   try {
     const { views } = await api('/api/views/');
     if (views.length) {
-      groups.push({ type: 'Saved views', items: views.slice(0, 5).map((v) => ({
-        title: v.name, subtitle: 'Saved filters', url: `/transactions/?${v.query}` })) });
+      groups.push({ type: 'Filtros salvos', items: views.slice(0, 5).map((v) => ({
+        title: v.name, subtitle: 'Filtros salvos', url: `/transactions/?${v.query}` })) });
     }
   } catch (e) { /* optional */ }
   if (!input.value.trim()) render(groups);
@@ -97,7 +97,7 @@ export function openSearch() {
   if (!dialog) return;
   input.value = '';
   render([]);
-  hint.textContent = 'Type at least 2 characters. Try "food last month over 500". Use the arrow keys and Enter.';
+  hint.textContent = 'Digite pelo menos 2 caracteres. Experimente "mercado mês passado acima de 500". Use as setas e Enter.';
   hint.hidden = false;
   openDialog(dialog, '#search-input');
   showDefaults();

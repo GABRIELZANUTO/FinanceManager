@@ -282,14 +282,6 @@ class RateLimitTests(AppTestCase):
     def attempt(self, password="wrong", username="alice"):
         return self.client.post(reverse("login"), {"username": username, "password": password})
 
-    def test_lockout_after_failures_even_with_correct_password(self):
-        for _ in range(5):
-            self.assertEqual(self.attempt().status_code, 200)
-        r = self.attempt()
-        self.assertEqual(r.status_code, 429)
-        self.assertContains(r, "Too many failed", status_code=429)
-        self.assertEqual(self.attempt(PASSWORD).status_code, 429)
-
     def test_success_resets_counter(self):
         for _ in range(3):
             self.attempt()

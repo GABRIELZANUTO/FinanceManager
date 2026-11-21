@@ -1,0 +1,21 @@
+{% extends "app/base.html" %}
+{% load static %}
+{% block title %}Bem-vindo{% endblock %}
+{% block heading %}Como você quer usar o aplicativo?{% endblock %}
+{% block content %}
+<div id="sync-start" class="grid cols-2">
+  <section class="card">
+    <div class="card-head"><h2>Só neste celular</h2></div>
+    <p class="muted">Seus dados ficam guardados apenas neste aparelho. Dá para conectar uma conta online depois, em Sincronização.</p>
+    <p><button class="btn btn-primary" type="button" data-sync-local>Usar só neste celular</button></p>
+  </section>
+  <section class="card">
+    <div class="card-head"><h2>Com uma conta online</h2></div>
+    <p class="muted">Os dados ficam no celular e também na sua conta, e aparecem no site. Funciona sem internet: o que você lançar offline vai para a conta quando a conexão voltar.</p>
+    <p class="actions"><button class="btn btn-primary" type="button" data-sync-open="login">Entrar na minha conta online</button>
+      <button class="btn" type="button" data-sync-open="create">Criar conta online</button></p>
+  </section>
+</div>
+{% include "app/_sync_login.html" %}
+{% endblock %}
+{% block scripts %}<script type="module" src="{% static 'app/js/sync.js' %}?v={{ asset_version }}"></script>{% endblock %}

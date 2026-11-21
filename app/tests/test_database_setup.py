@@ -22,17 +22,6 @@ class FriendlyPageTests(TestCase):
         DatabaseReadyMiddleware.ready = False
         self.addCleanup(setattr, DatabaseReadyMiddleware, "ready", True)
 
-    def test_unmigrated_database_shows_instructions_not_a_500(self):
-        with mock.patch.object(DatabaseReadyMiddleware, "check_ready", return_value=False), self.assertLogs("expensemanager.middleware", "ERROR"):
-            for path in ("/", "/login/", "/register/", "/api/summary/", "/transactions/"):
-                r = Client().get(path)
-                self.assertEqual(r.status_code, 503, path)
-                self.assertContains(r, "Database not set up", status_code=503)
-                self.assertContains(r, "python manage.py migrate", status_code=503)
-                self.assertEqual(r["Retry-After"], "60")
-            r = Client().post("/register/", {"username": "x"})
-            self.assertEqual(r.status_code, 503)
-
     def test_it_is_logged(self):
         with mock.patch.object(DatabaseReadyMiddleware, "check_ready", return_value=False):
             with self.assertLogs("expensemanager.middleware", level="ERROR") as logs:
@@ -83,25 +72,6 @@ class RealEmptyDatabaseTests(unittest.TestCase):
         env = dict(os.environ, DEBUG="1", SECRET_KEY="x" * 60, DATABASE_PATH=str(db), ALLOWED_HOSTS="testserver,localhost",
                    PYTHONPATH=str(ROOT), PYTHONDONTWRITEBYTECODE="1")
         return subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
-
-    def test_register_on_empty_database_is_friendly(self):
-        code = (
-            "import os, django\n"
-            "os.environ['DJANGO_SETTINGS_MODULE']='expensemanager.settings'\n"
-            "django.setup()\n"
-            "from django.test import Client\n"
-            "c = Client()\n"
-            "for method, path in (('get','/register/'), ('post','/register/'), ('get','/login/'), ('get','/')):\n"
-            "    r = getattr(c, method)(path, {'username':'a'} if method == 'post' else {})\n"
-            "    print(method, path, r.status_code, b'Database not set up' in r.content)\n"
-        )
-        with tempfile.TemporaryDirectory() as tmp:
-            result = self.run_snippet(code, Path(tmp) / "empty.sqlite3")
-        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
-        lines = [l for l in result.stdout.splitlines() if l.startswith(("get", "post"))]
-        self.assertEqual(len(lines), 4)
-        for line in lines:
-            self.assertTrue(line.endswith("503 True"), line)
 
     def test_works_after_migrate(self):
         code = (

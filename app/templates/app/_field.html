@@ -5,9 +5,9 @@
   <label for="{{ field.id_for_label }}">{{ field.label }}</label>
   <div class="pw">
     {{ field }}
-    <button class="pw-toggle" type="button" data-pw-toggle aria-pressed="false" aria-label="Show password" hidden>{% icon "eye" %}</button>
+    <button class="pw-toggle" type="button" data-pw-toggle aria-pressed="false" aria-label="Mostrar senha" hidden>{% icon "eye" %}</button>
   </div>
-  <p class="caps-warn" data-caps hidden>Caps Lock is on.</p>
+  <p class="caps-warn" data-caps hidden>Caps Lock está ativado.</p>
   {% if meter %}<p class="field-hint" data-pw-message aria-live="polite" hidden></p><div class="meter" data-meter hidden><span class="meter-track"><span class="meter-bar"></span></span><span class="meter-label" aria-live="polite"></span></div>{% endif %}
   {% if match %}<p class="match-note" data-match-note aria-live="polite" hidden></p>{% endif %}
   {% else %}

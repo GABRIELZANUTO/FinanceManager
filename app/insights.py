@@ -99,14 +99,25 @@ def bills(user, today):
               .select_related("category")):
         out.append({"type": "bill", "id": r.pk, "name": r.name, "amount": r.amount, "due": r.next_due,
                     "days": (r.next_due - today).days, "category": r.category.name})
+    from .planning import upcoming_invoices   # planning imports budgeting, which this module also uses
+    for inv in upcoming_invoices(user, today, horizon):
+        out.append({"type": "invoice", "id": inv["account_id"], "name": f"Fatura {inv['account']}", "amount": inv["open"],
+                    "due": inv["due"], "days": inv["days"], "category": "Cartão de crédito"})
+    # Installments to receive or pay (debts module).
+    for entry in LedgerEntry.objects.filter(person__user=user, planned=True, date__lte=horizon).select_related("person"):
+        receive = entry.amount < 0
+        out.append({"type": "debt", "id": entry.person_id,
+                    "name": f"{entry.person.name} te paga" if receive else f"Pagar {entry.person.name}",
+                    "amount": abs(entry.amount), "due": entry.date, "days": (entry.date - today).days,
+                    "category": entry.description})
     for person in Person.objects.filter(user=user):
-        net = person.entries.aggregate(t=Sum("amount"))["t"] or ZERO
+        net = person.entries.filter(planned=False).aggregate(t=Sum("amount"))["t"] or ZERO
         if net == 0:
             continue
         due = (person.entries.filter(due_date__isnull=False, kind__in=("lent", "borrowed"), due_date__lte=horizon)
                .order_by("due_date").first())
         if due:
-            out.append({"type": "debt", "id": person.pk, "name": f"{person.name} ({'owes you' if net > 0 else 'you owe'})",
+            out.append({"type": "debt", "id": person.pk, "name": f"{person.name} ({'te deve' if net > 0 else 'você deve'})",
                         "amount": abs(net), "due": due.due_date, "days": (due.due_date - today).days, "category": ""})
     return sorted(out, key=lambda b: b["due"])
 
@@ -128,14 +139,15 @@ def sentences(user, today=None):
     data = budgeting.status(user, today, today)
     items = ([data["overall"]] if data["overall"] else []) + sorted(data["categories"], key=lambda i: -i["percent"])
     for item in items[:3]:
-        name = item["category"]["name"] if item["category"] else "monthly"
-        label = f"your {name} budget" if item["category"] else "this month's budget"
+        name = item["category"]["name"] if item["category"] else ""
+        target = f"o orçamento de {name}" if item["category"] else "o orçamento do mês"
+        label = f"do orçamento de {name}" if item["category"] else "do orçamento do mês"
         if item["over"]:
-            out.append({"level": "bad", "text": f"You are over {label} by {_money(user, -item['remaining'])}.", "url": "/budgets/"})
+            out.append({"level": "bad", "text": f"Você estourou {target} em {_money(user, -item['remaining'])}.", "url": "/budgets/"})
         elif item["percent"] >= 50:
-            days = f"{left} day{'s' if left != 1 else ''}"
+            days = f"falta{'m' if left != 1 else ''} {left} dia{'s' if left != 1 else ''}"
             out.append({"level": "warn" if item["level"] == "warn" else "info",
-                        "text": f"You have spent {item['percent']:.0f}% of {label} with {days} left.", "url": "/budgets/"})
+                        "text": f"Você já gastou {item['percent']:.0f}% {label} e {days} para acabar o mês.", "url": "/budgets/"})
 
     # pace against last month
     prev_start = add_months(this_start, -1)
@@ -143,32 +155,43 @@ def sentences(user, today=None):
     _, prev_expense = services.income_expense(user, prev_start, prev_end)
     if expense and prev_expense:
         change = round(float((expense - prev_expense) / prev_expense * 100))
-        word = "less" if change < 0 else "more"
+        word = "a menos" if change < 0 else "a mais"
         if change == 0:
-            out.append({"level": "info", "text": "You are spending about the same as at this point last month.", "url": "/analytics/"})
+            out.append({"level": "info", "text": "Você está gastando mais ou menos o mesmo que nesta altura do mês passado.", "url": "/analytics/"})
         else:
             out.append({"level": "good" if change < 0 else "warn",
-                        "text": f"You have spent {_money(user, expense)} so far, {abs(change)}% {word} than at this point last month.",
+                        "text": f"Você gastou {_money(user, expense)} até agora, {abs(change)}% {word} que nesta altura do mês passado.",
                         "url": "/analytics/"})
 
-    # forecast
-    if today.day >= 3 and expense:
-        projected = q2(expense / today.day * days_in_month)
-        out.append({"level": "info", "text": f"At this pace you will spend about {_money(user, projected)} by the end of the month.",
-                    "url": "/budgets/"})
+    from .models import RecurringMatch
+    waiting = RecurringMatch.objects.filter(recurring__user=user, decision=RecurringMatch.PENDING).count()
+    if waiting:
+        out.append({"level": "warn", "url": "/analytics/#plano",
+                    "text": f"{waiting} lançamento(s) recorrente(s) parecem já ter sido lançados à mão: confirme no planejamento."})
+
+    # forecast: the month plan (what happened + what is still to come + estimated variable spending),
+    # the same numbers as the Dashboard totals and Analytics, instead of a simple daily pace.
+    from .planning import month_plan
+    plan = month_plan(user, this_start, today)
+    total = plan["totals"]["expense"] + plan["totals"]["estimate"]
+    if total > 0:
+        done = plan["totals"]["expense_done"]
+        out.append({"level": "info", "url": "/analytics/#plano",
+                    "text": f"Pelo planejamento, você vai gastar cerca de {_money(user, total)} este mês "
+                            f"(já gastou {_money(user, done)})."})
 
     for u in unusual(user, today)[:2]:
-        out.append({"level": "warn", "text": f"{u['name']} is already at {u['percent']}% of its usual monthly spending "
-                                             f"({_money(user, u['average'])} on average).", "url": "/analytics/"})
+        out.append({"level": "warn", "text": f"{u['name']} já está em {u['percent']}% do gasto mensal habitual "
+                                             f"({_money(user, u['average'])} em média).", "url": "/analytics/"})
     upcoming = [b for b in bills(user, today) if b["days"] <= DUE_SOON_DAYS]
     for b in upcoming[:2]:
-        when = "is overdue" if b["days"] < 0 else "is due today" if b["days"] == 0 else f"is due in {b['days']} day{'s' if b['days'] != 1 else ''}"
+        when = "está vencida" if b["days"] < 0 else "vence hoje" if b["days"] == 0 else f"vence em {b['days']} dia{'s' if b['days'] != 1 else ''}"
         out.append({"level": "warn", "text": f"{b['name']} ({_money(user, b['amount'])}) {when}.",
-                    "url": "/recurring/" if b["type"] == "bill" else "/people/"})
+                    "url": {"bill": "/recurring/", "invoice": "/analytics/#plano"}.get(b["type"], "/people/")})
     if income and expense and income > 0:
         rate = round(float((income - expense) / income * 100))
         if rate >= 20:
-            out.append({"level": "good", "text": f"You have kept {rate}% of this month's income so far.", "url": "/reports/"})
+            out.append({"level": "good", "text": f"Você guardou {rate}% da renda deste mês até agora.", "url": "/reports/"})
     return out
 
 

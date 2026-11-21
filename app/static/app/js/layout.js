@@ -1,5 +1,6 @@
 // Behaviour shared by every signed-in page: menu, shortcuts, flash messages.
-import { $, $$, icon, toast } from './core.js';
+import { $, $$, icon, openDialog, toast, wireDialog } from './core.js';
+import './dates.js';
 import { openTransactionDialog } from './tx-dialog.js';
 import { openSearch } from './search.js';
 import { api } from './core.js';
@@ -20,7 +21,7 @@ function setCollapsed(collapsed, persist = true) {
   if (collapsed) root.setAttribute('data-sidebar', 'collapsed'); else root.removeAttribute('data-sidebar');
   if (collapseButton) {
     collapseButton.setAttribute('aria-expanded', String(!collapsed));
-    collapseButton.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+    collapseButton.setAttribute('aria-label', collapsed ? 'Expandir menu lateral' : 'Recolher menu lateral');
     collapseButton.replaceChildren(icon(collapsed ? 'panel-left-open' : 'panel-left-close'));
   }
   if (persist) store('sidebar', collapsed ? 'collapsed' : 'expanded');
@@ -65,7 +66,7 @@ function setDrawer(open) {
   body.classList.toggle('nav-open', open);
   if (toggle) {
     toggle.setAttribute('aria-expanded', String(open));
-    toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+    toggle.setAttribute('aria-label', open ? 'Fechar menu' : 'Abrir menu');
   }
   syncInert();
   if (open) {
@@ -149,7 +150,7 @@ document.addEventListener('keydown', (event) => {
   } else if (event.key === '?') {
     event.preventDefault();
     const help = document.getElementById('help-dialog');
-    help.showModal();
+    openDialog(help);
   }
 });
 
@@ -161,13 +162,43 @@ if (count) {
   }).catch(() => {});
 }
 
-$$('dialog').forEach((dialog) => {
-  if (dialog.id === 'help-dialog' || dialog.id === 'confirm-dialog') {
-    dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
-  }
-});
+// Every modal on every page: closes only from X / Cancel / Esc, never from a click outside.
+$$('dialog').forEach((dialog) => { if (dialog.id !== 'confirm-dialog' && dialog.id !== 'sync-busy') wireDialog(dialog); });
 
 if (window.location.hash === '#new') {
   history.replaceState(null, '', window.location.pathname + window.location.search);
   openTransactionDialog();
 }
+
+// Forms that take a while on the server (reading a statement): show a busy label once submitted.
+$$('form[data-busy]').forEach((form) => {
+  form.addEventListener('submit', () => {
+    const button = form.querySelector('button[type="submit"]');
+    if (button) { button.disabled = true; button.textContent = form.dataset.busy; }
+    const note = form.querySelector('[data-busy-note]');
+    if (note) note.hidden = false;
+  });
+});
+
+// Copy the text of a field to the clipboard: data-copy-target="element-id".
+$$('[data-copy-target]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const field = document.getElementById(button.dataset.copyTarget);
+    if (!field) return;
+    try {
+      await navigator.clipboard.writeText(field.value);
+    } catch (error) {
+      field.select();
+      document.execCommand('copy');
+    }
+    toast('Texto copiado.');
+  });
+});
+
+// "Mark all" checkbox for a column of checkboxes: data-check-all="name-prefix".
+$$('[data-check-all]').forEach((master) => {
+  const prefix = master.dataset.checkAll;
+  master.addEventListener('change', () => {
+    $$(`input[type="checkbox"][name^="${prefix}"]`).forEach((box) => { if (!box.disabled) box.checked = master.checked; });
+  });
+});

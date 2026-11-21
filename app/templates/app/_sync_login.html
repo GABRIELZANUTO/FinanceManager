@@ -1,0 +1,22 @@
+<form id="sync-login" class="card" novalidate hidden>
+  <div class="card-head"><h2 id="sync-login-title">Entrar na minha conta online</h2></div>
+  <div class="form-error" data-form-error role="alert" hidden></div>
+  <div class="field" data-create-only hidden><label for="sl-name">Nome completo</label><input id="sl-name" name="full_name" type="text" maxlength="100" autocomplete="name"><p class="field-error" data-error-for="full_name"></p></div>
+  <div class="field" data-create-only hidden><label for="sl-email">E-mail</label><input id="sl-email" name="email" type="email" maxlength="254" autocomplete="email"><p class="field-error" data-error-for="email"></p></div>
+  <div class="field"><label for="sl-user">Usuário</label><input id="sl-user" name="username" type="text" maxlength="150" autocomplete="username" autocapitalize="none" required><p class="field-error" data-error-for="username"></p></div>
+  <div class="field"><label for="sl-pass">Senha</label><input id="sl-pass" name="password" type="password" autocomplete="current-password" required><p class="field-error" data-error-for="password1"></p><p class="field-error" data-error-for="password2"></p></div>
+  <details class="more"><summary>Avançado</summary>
+    <div class="field"><label for="sl-server">Endereço do servidor</label><input id="sl-server" name="server" type="url" value="{{ server }}" autocapitalize="none"><p class="field-error" data-error-for="server"></p></div>
+  </details>
+  <div id="sync-choice" class="notice warn" hidden>
+    <p>Este celular e a sua conta online já têm lançamentos. O que fazer com os deste celular?</p>
+    <p class="actions">
+      <button class="btn" type="button" data-sync-choice="send">Enviar os dados deste celular para a conta</button>
+      <button class="btn" type="button" data-sync-choice="download">Apagar os deste celular e baixar os da conta</button>
+      <button class="btn btn-quiet" type="button" data-sync-choice="">Cancelar</button>
+    </p>
+    <p class="muted small">Se você lançou as mesmas coisas nos dois lugares, enviar vai deixá-las duplicadas.</p>
+  </div>
+  <p class="actions"><button class="btn btn-primary" type="submit" data-submit>Entrar</button><button class="btn" type="button" data-sync-cancel>Voltar</button></p>
+  <p class="muted small">A senha não fica guardada no celular: ele recebe uma chave de acesso só dele, que você pode revogar no site em Configurações.</p>
+</form>

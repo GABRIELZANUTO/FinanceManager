@@ -35,6 +35,6 @@ for model, columns in (
 ):
     admin.site.register(model, type(f"{model.__name__}Admin", (admin.ModelAdmin,), {"list_display": columns}))
 
-admin.site.site_header = "Finance Manager administration"
-admin.site.site_title = "Finance Manager admin"
-admin.site.index_title = "Administration"
+admin.site.site_header = "Administração do Finanças Pessoais"
+admin.site.site_title = "Admin do Finanças Pessoais"
+admin.site.index_title = "Administração"

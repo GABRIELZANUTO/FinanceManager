@@ -2,7 +2,7 @@
 // Every chart renders into a container at its current pixel width, labels its marks for assistive
 // technology, and shows a tooltip on hover and on keyboard focus.
 import { formatMoney, h, svg } from './core.js';
-import { compact, dayLabel, monthLong, monthShort } from './format.js';
+import { compact, dateBR, dayLabel, monthLong, monthShort } from './format.js';
 
 const M = { top: 10, right: 12, bottom: 26, left: 48 };
 
@@ -98,7 +98,7 @@ export function groupedBars(box, items, width, o) {
 
 export function monthlyBars(box, rows, width) {
   groupedBars(box, rows.map((r) => ({ label: monthShort(r.month), long: monthLong(r.month), a: r.income, b: r.expense })), width,
-    { title: 'Income and expenses by month', aName: 'Income', bName: 'Expenses', aClass: 'm-income', bClass: 'm-expense' });
+    { title: 'Receitas e despesas por mês', aName: 'Receitas', bName: 'Despesas', aClass: 'm-income', bClass: 'm-expense' });
 }
 
 /* Lines over a shared x axis. series: [{name, cls, values, area}], labels: [{x label}] */
@@ -106,7 +106,7 @@ export function lineChart(box, labels, series, width, o) {
   const height = width < 480 ? 210 : 250;
   const all = series.flatMap((s) => s.values.map(Number));
   const root = frame(width, height, o.title, `${o.title}. ${labels[0].long} to ${labels[labels.length - 1].long}. `
-    + series.map((s) => `${s.name} from ${formatMoney(s.values[0])} to ${formatMoney(s.values[s.values.length - 1])}.`).join(' '));
+    + series.map((s) => `${s.name} de ${formatMoney(s.values[0])} a ${formatMoney(s.values[s.values.length - 1])}.`).join(' '));
   const scale = niceScale(Math.min(0, ...all), Math.max(0, ...all, 1));
   const innerW = width - M.left - M.right;
   const innerH = height - M.top - M.bottom;
@@ -141,7 +141,7 @@ export function lineChart(box, labels, series, width, o) {
   };
   hit.setAttribute('tabindex', '0');
   hit.setAttribute('role', 'img');
-  hit.setAttribute('aria-label', `${o.title}. Use the left and right arrow keys to inspect each point.`);
+  hit.setAttribute('aria-label', `${o.title}. Use as setas para a esquerda e para a direita para ver cada ponto.`);
   hit.addEventListener('mousemove', (e) => {
     const r = hit.getBoundingClientRect();
     show(Math.round(((e.clientX - r.left) / r.width) * (n - 1)));
@@ -159,19 +159,19 @@ export function lineChart(box, labels, series, width, o) {
 
 export function netFlowLine(box, monthly, width) {
   lineChart(box, monthly.map((r) => ({ short: monthShort(r.month), long: monthLong(r.month) })),
-    [{ name: 'Net', values: monthly.map((r) => r.net), cls: '' }], width, { title: 'Net cash flow by month' });
+    [{ name: 'Saldo', values: monthly.map((r) => r.net), cls: '' }], width, { title: 'Fluxo de caixa líquido por mês' });
 }
 
 export function balanceArea(box, daily, width) {
   lineChart(box, daily.map((r) => ({ short: dayLabel(r.date), long: dayLabel(r.date) })),
-    [{ name: 'Balance', values: daily.map((r) => r.balance), area: true }], width, { title: 'Balance over time' });
+    [{ name: 'Saldo', values: daily.map((r) => r.balance), area: true }], width, { title: 'Saldo ao longo do tempo' });
 }
 
 export function cumulativeLine(box, cum, width) {
   const labels = cum.days.map((d) => ({ short: dayLabel(d.date), long: dayLabel(d.date) }));
-  const series = [{ name: 'Spent', values: cum.days.map((d) => d.spent), cls: 'm-line-expense' }];
-  if (cum.limit !== null) series.push({ name: 'Budget', values: cum.days.map(() => cum.limit), cls: 'm-line-budget' });
-  lineChart(box, labels, series, width, { title: 'Spending this month against budget' });
+  const series = [{ name: 'Gasto', values: cum.days.map((d) => d.spent), cls: 'm-line-expense' }];
+  if (cum.limit !== null) series.push({ name: 'Orçamento', values: cum.days.map(() => cum.limit), cls: 'm-line-budget' });
+  lineChart(box, labels, series, width, { title: 'Gastos do mês em relação ao orçamento' });
 }
 
 /* Stacked monthly bars by category. */
@@ -179,7 +179,7 @@ export function stackedBars(box, data, width) {
   const height = width < 480 ? 230 : 280;
   const months = data.months;
   const totals = months.map((_, i) => data.series.reduce((s, x) => s + Number(x.values[i]), 0));
-  const root = frame(width, height, 'Spending by category over time', 'Stacked monthly expenses. ' + months.map((m, i) => `${monthLong(m)}: ${formatMoney(totals[i])}.`).join(' '));
+  const root = frame(width, height, 'Gastos por categoria ao longo do tempo', 'Despesas mensais empilhadas. ' + months.map((m, i) => `${monthLong(m)}: ${formatMoney(totals[i])}.`).join(' '));
   const scale = niceScale(0, Math.max(1, ...totals));
   const innerW = width - M.left - M.right;
   const innerH = height - M.top - M.bottom;
@@ -219,11 +219,11 @@ export function donut(box, rows, width) {
   const shown = rows.slice(0, 7);
   const rest = rows.slice(7);
   if (rest.length) {
-    shown.push({ name: 'Other', color: 'gray', total: rest.reduce((s, r) => s + Number(r.total), 0).toFixed(2),
+    shown.push({ name: 'Outros', color: 'gray', total: rest.reduce((s, r) => s + Number(r.total), 0).toFixed(2),
       share: Math.round(rest.reduce((s, r) => s + r.share, 0) * 10) / 10 });
   }
   const size = Math.min(width, 260);
-  const root = frame(size, size, 'Expenses by category', shown.map((r) => `${r.name}: ${formatMoney(r.total)}, ${r.share}%.`).join(' '));
+  const root = frame(size, size, 'Despesas por categoria', shown.map((r) => `${r.name}: ${formatMoney(r.total)}, ${r.share}%.`).join(' '));
   const cx = size / 2;
   const R = size / 2 - 6;
   const r = R * 0.6;
@@ -240,7 +240,7 @@ export function donut(box, rows, width) {
       ? `M${p(R, angle)} A${R} ${R} 0 1 1 ${p(R, angle + Math.PI)} A${R} ${R} 0 1 1 ${p(R, angle)} M${p(r, angle)} A${r} ${r} 0 1 0 ${p(r, angle + Math.PI)} A${r} ${r} 0 1 0 ${p(r, angle)}`
       : `M${p(R, angle)} A${R} ${R} 0 ${large} 1 ${p(R, a1)} L${p(r, a1)} A${r} ${r} 0 ${large} 0 ${p(r, angle)} Z`;
     root.append(mark(tip, svg('path', { class: `mark bar-tone-${row.color} slice`, d, 'fill-rule': 'evenodd' }),
-      `${row.name} ${formatMoney(row.total)}, ${row.share} percent`, ...tipLine(row.name, `${formatMoney(row.total)} (${row.share}%)`)));
+      `${row.name} ${formatMoney(row.total)}, ${row.share} por cento`, ...tipLine(row.name, `${formatMoney(row.total)} (${row.share}%)`)));
     angle = a1;
   }
   root.append(svg('text', { class: 'ax-text donut-total', x: cx, y: cx - 2, 'text-anchor': 'middle' }, 'Total'));
@@ -253,7 +253,7 @@ export function rankedBars(box, rows, width, o = {}) {
   const shown = rows.slice(0, o.limit || 8);
   const rowH = 30;
   const height = Math.max(60, shown.length * rowH + 8);
-  const root = frame(width, height, o.title || 'Ranked categories', shown.map((r) => `${r.name}: ${formatMoney(r.total)}${r.share !== undefined ? `, ${r.share}%` : ''}.`).join(' '));
+  const root = frame(width, height, o.title || 'Categorias em ordem', shown.map((r) => `${r.name}: ${formatMoney(r.total)}${r.share !== undefined ? `, ${r.share}%` : ''}.`).join(' '));
   const labelW = Math.min(150, Math.round(width * 0.36));
   const valueW = width < 420 ? 52 : 64;
   const maxLen = Math.max(10, width - labelW - valueW - 12);
@@ -284,7 +284,7 @@ export function sparklines(box, trend, months, width) {
     const max = Math.max(1, ...values);
     const H = 46;
     const W = cellW - 4;
-    const root = frame(W, H + 6, `${s.name} monthly spending`,
+    const root = frame(W, H + 6, `Gasto mensal em ${s.name}`,
       months.map((m, i) => `${monthLong(m)} ${formatMoney(values[i])}`).join(', '));
     const x = (i) => 3 + (i / (values.length - 1)) * (W - 6);
     const y = (v) => 3 + H - (v / max) * H;
@@ -309,10 +309,10 @@ export function heatmap(box, data, width) {
   const cell = Math.max(8, Math.min(18, Math.floor((width - labelW) / weeks) - gap));
   const height = 7 * (cell + gap) + 22;
   const max = Math.max(1, ...days.map((d) => Number(d.expense)));
-  const root = frame(labelW + weeks * (cell + gap), height, 'Daily spending heatmap',
-    `Spending per day from ${data.start} to ${data.end}. Darker cells are days with more spending. The table view lists every day.`);
+  const root = frame(labelW + weeks * (cell + gap), height, 'Mapa de calor dos gastos diários',
+    `Gastos por dia de ${data.start} a ${data.end}. Células mais escuras são dias com mais gastos. A visão em tabela lista todos os dias.`);
   const tip = tooltipFor(box);
-  ['Mon', 'Wed', 'Fri'].forEach((name, k) => root.append(svg('text', { class: 'ax-text', x: 0, y: 22 + k * 2 * (cell + gap) + cell - 2 }, name)));
+  ['seg', 'qua', 'sex'].forEach((name, k) => root.append(svg('text', { class: 'ax-text', x: 0, y: 22 + k * 2 * (cell + gap) + cell - 2 }, name)));
   let lastMonth = '';
   days.forEach((d, i) => {
     const week = Math.floor(i / 7);
@@ -320,7 +320,7 @@ export function heatmap(box, data, width) {
     const value = Number(d.expense);
     const level = value === 0 ? 0 : Math.min(4, 1 + Math.floor((value / max) * 3.999));
     const rect = svg('rect', { class: `heat heat-${level}`, x: labelW + week * (cell + gap), y: 14 + dow * (cell + gap), width: cell, height: cell, rx: 2,
-      role: 'img', 'aria-label': `${d.date} spent ${formatMoney(value)}` });
+      role: 'img', 'aria-label': `${dateBR(d.date)} gasto ${formatMoney(value)}` });
     rect.addEventListener('mouseenter', () => tip.show(rect, ...tipLine(dayLabel(d.date), formatMoney(value))));
     rect.addEventListener('mouseleave', tip.hide);
     root.append(rect);
@@ -330,7 +330,7 @@ export function heatmap(box, data, width) {
       root.append(svg('text', { class: 'ax-text', x: labelW + week * (cell + gap), y: 9 }, monthShort(month)));
     }
   });
-  const legendRow = h('div', { class: 'legend heat-legend' }, 'Less', ...[0, 1, 2, 3, 4].map((l) => h('i', { class: `sw heat heat-${l}` })), 'More');
+  const legendRow = h('div', { class: 'legend heat-legend' }, 'Menos', ...[0, 1, 2, 3, 4].map((l) => h('i', { class: `sw heat heat-${l}` })), 'Mais');
   box.replaceChildren(h('div', { class: 'heat-wrap' }, root), legendRow, tip.node);
 }
 
@@ -338,7 +338,7 @@ export function heatmap(box, data, width) {
 export function goalBars(box, goals, width) {
   const rowH = 38;
   const height = Math.max(60, goals.length * rowH + 6);
-  const root = frame(width, height, 'Savings goal progress', goals.map((g) => `${g.name}: ${formatMoney(g.saved)} of ${formatMoney(g.target)}, ${g.percent}%.`).join(' '));
+  const root = frame(width, height, 'Progresso das metas de poupança', goals.map((g) => `${g.name}: ${formatMoney(g.saved)} de ${formatMoney(g.target)}, ${g.percent}%.`).join(' '));
   const tip = tooltipFor(box);
   goals.forEach((g, i) => {
     const top = 4 + i * rowH;

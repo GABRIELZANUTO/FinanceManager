@@ -80,12 +80,15 @@ Plain, light and quick: a spreadsheet-clean interface, no tracking, no network c
 
 ## Requirements
 
-Python 3.9 or newer and Django 4.2 to 5.2 (Django 5 needs Python 3.10 or newer). There are no other dependencies.
+Python 3.9 or newer and Django 4.2 to 5.2 (Django 5 needs Python 3.10 or newer). Everything is in `requirements.txt`:
+Django; `gunicorn` and `whitenoise` to serve it in production; and the SDK used by the optional PDF statement reader (only
+called when its API key is set). All other features use the standard library only, so the same code also runs inside the
+Android app.
 
 ## Quick start
 
 ```bash
-git clone https://github.com/himaldahal/finance-manager.git
+git clone https://github.com/<your-user>/finance-manager.git
 cd finance-manager
 scripts/bootstrap.sh --demo --run      # creates .venv, installs, writes .env, migrates, seeds a demo user, starts the server
 ```
@@ -125,6 +128,29 @@ environment variables win). See `.env.example`.
 | `SECURE_SSL_REDIRECT` | on when `DEBUG=0` | Redirect HTTP to HTTPS. |
 | `SECURE_HSTS_SECONDS` | `31536000` when `DEBUG=0` | HSTS lifetime. |
 | `TRUST_X_FORWARDED_PROTO` | `0` | Enable only behind a proxy that always sets the header. |
+| `API_TOKEN_RATE`, `API_TOKEN_WINDOW` | `600`, `60` | Requests per API key per window (seconds). |
+| `SYNC_REQUIRE_PLAN` | `0` | Only users with `Profile.plan = "sync"` may synchronise a phone. |
+| `SYNC_SERVER_URL` | empty | Default site of the phone app (or `expensemanager/local_settings.py`). |
+| `GDRIVE_CLIENT_ID`, `GDRIVE_CLIENT_SECRET`, `GDRIVE_REFRESH_TOKEN` | empty | Daily backup to Google Drive (see below). |
+| `GDRIVE_FOLDER`, `GDRIVE_KEEP`, `GDRIVE_BACKUP_HOUR` | see `.env.example` | Folder name, backups kept, hour of the day. |
+
+Settings of your own installation that should not be in git (the phone app's default site, for example) go in
+`expensemanager/local_settings.py`; copy `expensemanager/local_settings.example.py`.
+
+## API, phone synchronisation and backups
+
+- **API:** `/api/v1/` with a key (`Authorization: Bearer fp_...`), no cookie and no CSRF token. Create keys in Settings,
+  "Acesso pela API e dispositivos", or with `POST /api/v1/auth/token/`. Readable documentation at `/api/v1/docs/`
+  (from `app/static/app/api/openapi.json`; run `scripts/gerar_openapi.py` after adding a route).
+- **Edit conflicts:** every record has a `uid` and a `version`. A write based on an older version gets HTTP 409 with what
+  is saved now, and the screens ask what to keep.
+- **Phone synchronisation:** the Android app runs this same code locally (`APP_MODE=1`) and keeps an outbox of local
+  changes; `/api/v1/sync/` pushes, pulls and downloads in pages, merges field by field and reports conflicts. Code in
+  `app/sync/`; the end to end test runs a phone in another process (`app/tests/test_sync_e2e.py`).
+- **Daily backup to Google Drive:** `python manage.py backup_drive` (or `--local DIR` for just the zip) builds a zip
+  with the whole database as JSON and each user's backup. Authorise once with
+  `python scripts/autorizar_google_drive.py client_secret.json` (an OAuth client of type "desktop app"); in production the
+  web process then sends one backup a day. Restore with `python manage.py loaddata banco.json` on an empty, migrated database.
 
 ## Security notes
 
@@ -178,7 +204,10 @@ app/
   api.py             JSON endpoints                    views.py      HTML pages
   csvio.py nlq.py filters.py forms.py ratelimit.py
   templates/ static/app/{css,js,icons}
-  management/commands/   apply_recurring, seed_demo
+  sync/              uid, version and change log; API sync server; phone client
+  api_auth.py tokens.py api_docs.py urls_api_v1.py    the /api/v1/ API
+  concurrency.py     edit conflict checks (HTTP 409)   drive_backup.py   daily backup to Google Drive
+  management/commands/   apply_recurring, seed_demo, backup_drive
   tests/
 scripts/             bootstrap.sh, check_hygiene.sh, capture_screenshots.py, build_icons.py
 docs/screenshots/

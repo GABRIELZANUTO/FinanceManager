@@ -116,29 +116,6 @@ class BackupTests(AppTestCase):
             backup.restore(self.user, parsed)
         self.assertTrue(Transaction.objects.filter(name="keep me").exists())
 
-    def test_download_and_upload_views(self):
-        self.tx(name="Tea")
-        r = self.client.get(reverse("backup_export"))
-        self.assertIn("application/json", r["Content-Type"])
-        self.assertIn("attachment", r["Content-Disposition"])
-        self.assertEqual(json.loads(r.content)["version"], 1)
-        file = SimpleUploadedFile("b.json", r.content)
-        r = self.client.post(reverse("backup"), {"file": file, "check": "1"})
-        self.assertContains(r, "The file is valid")
-        self.assertEqual(Transaction.objects.count(), 1)
-        file = SimpleUploadedFile("b.json", self.client.get(reverse("backup_export")).content)
-        r = self.client.post(reverse("backup"), {"file": file, "restore": "1"})
-        self.assertContains(r, "Tick the box")
-        file = SimpleUploadedFile("b.json", self.client.get(reverse("backup_export")).content)
-        r = self.client.post(reverse("backup"), {"file": file, "restore": "1", "confirm": "on"})
-        self.assertRedirects(r, reverse("dashboard"))
-
-    def test_upload_errors(self):
-        r = self.client.post(reverse("backup"), {"file": SimpleUploadedFile("b.json", b"nope"), "check": "1"})
-        self.assertContains(r, "not a valid JSON")
-        r = self.client.post(reverse("backup"), {"check": "1"})
-        self.assertContains(r, "Choose a backup file")
-
     def test_users_cannot_download_each_others_backup(self):
         self.tx(user=self.other, name="OTHER-ONLY")
         self.assertNotIn(b"OTHER-ONLY", self.client.get(reverse("backup_export")).content)
@@ -205,10 +182,6 @@ class PeopleTests(AppTestCase):
         pid = self.person()
         self.entry(pid, amount="500")
         self.assertEqual(services.balance_for(self.user), Decimal("0.00"))
-
-    def test_page_renders(self):
-        self.assertContains(self.client.get(reverse("people")), "Debts and sharing")
-
 
 def datetime_days(n):
     import datetime

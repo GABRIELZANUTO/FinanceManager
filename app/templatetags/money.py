@@ -15,3 +15,9 @@ def money(context, value):
     except (InvalidOperation, TypeError, ValueError):
         return ""
     return format_money(value, context.get("profile"))
+
+
+@register.filter
+def get_item(mapping, key):
+    """``{{ mapping|get_item:key }}`` for dict lookups with a variable key."""
+    return mapping.get(key, "") if hasattr(mapping, "get") else ""

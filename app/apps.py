@@ -8,6 +8,9 @@ class FinanceConfig(AppConfig):
 
     def ready(self):
         from . import signals  # noqa: F401
+        from .sync import capture
+
+        capture.connect()
 
 
 @checks.register(checks.Tags.database)

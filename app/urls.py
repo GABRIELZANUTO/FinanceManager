@@ -1,6 +1,7 @@
 from django.urls import path
 
-from . import api, views
+from . import api, api_auth, views
+from .sync import local_views as sync_local
 
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
@@ -28,13 +29,30 @@ urlpatterns = [
     path("import/", views.import_page, name="import"),
     path("import/confirm/", views.import_confirm, name="import_confirm"),
     path("import/cancel/", views.import_cancel, name="import_cancel"),
+    path("cards/", views.card_invoices, name="cards"),
+    path("cards/confirm/", views.card_confirm, name="card_confirm"),
+    path("cards/cancel/", views.card_cancel, name="card_cancel"),
     path("login/", views.LoginView.as_view(), name="login"),
+    path("privacidade/", views.privacy, name="privacy"),
     path("logout/", views.logout_view, name="logout"),
     path("register/", views.register, name="register"),
     path("register/username-available/", views.username_available, name="username_available"),
 
+    path("sync/", sync_local.sync_page, name="sync"),
+    path("sync/inicio/", sync_local.start_page, name="sync_start"),
+    path("api/sync/status/", sync_local.status, name="api_sync_status"),
+    path("api/sync/run/", sync_local.run, name="api_sync_run"),
+    path("api/sync/local/", sync_local.local_only, name="api_sync_local"),
+    path("api/sync/login/", sync_local.login, name="api_sync_login"),
+    path("api/sync/logout/", sync_local.logout, name="api_sync_logout"),
+    path("api/sync/details/", sync_local.details, name="api_sync_details"),
+    path("api/sync/conflicts/<int:pk>/resolve/", sync_local.resolve, name="api_sync_resolve"),
+    path("api/tokens/", api_auth.token_list, name="api_tokens"),
+    path("api/tokens/<int:pk>/", api_auth.token_detail, name="api_token"),
     path("api/summary/", api.summary, name="api_summary"),
     path("api/analytics/", api.analytics, name="api_analytics"),
+    path("api/plan/", api.plan, name="api_plan"),
+    path("api/quick/", api.quick_entry, name="api_quick"),
     path("api/notifications/", api.notifications, name="api_notifications"),
     path("api/search/", api.search, name="api_search"),
     path("api/suggest/", api.suggest, name="api_suggest"),
@@ -56,6 +74,10 @@ urlpatterns = [
     path("api/people/<int:pk>/", api.person_detail, name="api_person"),
     path("api/people/<int:pk>/entries/", api.person_entry, name="api_person_entry"),
     path("api/entries/<int:pk>/", api.entry_detail, name="api_entry"),
+    path("api/entries/<int:pk>/confirm/", api.entry_confirm, name="api_entry_confirm"),
+    path("api/people/<int:pk>/settle/", api.person_settle, name="api_person_settle"),
+    path("api/people/<int:pk>/summary/", api.person_summary, name="api_person_summary"),
+    path("api/people/split/", api.people_split, name="api_people_split"),
     path("api/categories/", api.categories, name="api_categories"),
     path("api/categories/<int:pk>/", api.category_detail, name="api_category"),
     path("api/accounts/", api.accounts, name="api_accounts"),
@@ -80,4 +102,5 @@ urlpatterns = [
     path("api/recurring/", api.recurring, name="api_recurring"),
     path("api/recurring/<int:pk>/", api.recurring_detail, name="api_recurring_item"),
     path("api/recurring/<int:pk>/toggle/", api.recurring_toggle, name="api_recurring_toggle"),
+    path("api/recurring/<int:pk>/match/", api.recurring_match, name="api_recurring_match"),
 ]

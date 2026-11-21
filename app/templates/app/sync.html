@@ -1,0 +1,49 @@
+{% extends "app/base.html" %}
+{% load static %}
+{% block title %}Sincronização{% endblock %}
+{% block heading %}Sincronização{% endblock %}
+{% block content %}
+<div id="sync-page">
+  <section class="card" id="sync-off" hidden>
+    <div class="card-head"><h2>Este celular não está conectado</h2></div>
+    <p class="muted">Conecte uma conta online para ver e lançar os mesmos dados no site e em outros aparelhos. Funciona sem internet: o que você lançar offline vai para a conta quando a conexão voltar.</p>
+    <p class="actions"><button class="btn btn-primary" type="button" data-sync-open="login">Entrar na minha conta online</button>
+      <button class="btn" type="button" data-sync-open="create">Criar conta online</button></p>
+  </section>
+  {% include "app/_sync_login.html" %}
+
+  <section class="card" id="sync-on" hidden>
+    <div class="card-head"><h2>Conta online</h2></div>
+    <p><strong data-sync="username"></strong> <span class="muted small" data-sync="server"></span></p>
+    <p data-sync="when" class="muted"></p>
+    <p data-sync="error" class="notice error" hidden></p>
+    <p class="actions"><button class="btn btn-primary" type="button" data-sync-now>Sincronizar agora</button>
+      <button class="btn" type="button" data-sync-logout>Sair da conta</button></p>
+  </section>
+
+  <section class="card" id="sync-lists" hidden>
+    <div class="tabs" role="tablist" aria-label="Sincronização">
+      <button type="button" role="tab" aria-selected="true" aria-controls="tab-pending" id="t-pending">Pendentes <span class="badge" data-count="pending"></span></button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="tab-conflicts" id="t-conflicts">Conflitos e erros <span class="badge" data-count="conflicts"></span></button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="tab-history" id="t-history">Histórico</button>
+    </div>
+    <div role="tabpanel" id="tab-pending" aria-labelledby="t-pending"></div>
+    <div role="tabpanel" id="tab-conflicts" aria-labelledby="t-conflicts" hidden></div>
+    <div role="tabpanel" id="tab-history" aria-labelledby="t-history" hidden></div>
+  </section>
+</div>
+
+<dialog id="logout-dialog" aria-labelledby="logout-title" data-no-confirm>
+  <form method="dialog">
+    <div class="dialog-head"><h2 id="logout-title">Sair da conta online</h2>
+      <button class="icon-btn" type="submit" value="" aria-label="Fechar">{% icon "x" %}</button></div>
+    <div class="dialog-body"><p id="logout-message">O que fazer com os dados que estão neste celular?</p></div>
+    <div class="dialog-foot">
+      <button class="btn" type="submit" value="">Cancelar</button>
+      <button class="btn btn-danger" type="submit" value="wipe">Apagar os dados deste celular</button>
+      <button class="btn btn-primary" type="submit" value="keep">Manter os dados neste celular</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+{% block scripts %}<script type="module" src="{% static 'app/js/sync.js' %}?v={{ asset_version }}"></script>{% endblock %}

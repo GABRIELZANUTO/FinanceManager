@@ -4,7 +4,9 @@ import datetime
 import io
 from decimal import Decimal, InvalidOperation
 
-from .models import MAX_AMOUNT, MIN_AMOUNT, MIN_DATE, Transaction
+from django.utils import timezone
+
+from .models import KIND_PLURAL, MAX_AMOUNT, MIN_AMOUNT, MIN_DATE, Transaction
 from .services import q2, suggest_category
 
 HEADER = ["date", "type", "name", "category", "amount", "payee", "account", "tags", "note"]
@@ -60,24 +62,55 @@ class CsvImportError(Exception):
     """A problem with the file as a whole (not a single row)."""
 
 
+# Portuguese column names accepted on import (the export keeps the English header).
+HEADER_ALIASES = {
+    "data": "date", "tipo": "type", "descrição": "name", "descricao": "name", "nome": "name", "categoria": "category",
+    "valor": "amount", "favorecido": "payee", "conta": "account", "observação": "note", "observacao": "note",
+    "nota": "note",
+}
+KIND_ALIASES = {"receita": "income", "despesa": "expense"}
+
+
+def parse_date(text):
+    """ISO (2025-03-31) or Brazilian (31/03/2025) date; raises ValueError."""
+    text = text.strip()
+    if "/" in text:
+        day, month, year = text.split("/")
+        return datetime.date(int(year), int(month), int(day))
+    return datetime.date.fromisoformat(text)
+
+
+def parse_amount(text):
+    """1234.56, 1,234.56, 1234,56 or 1.234,56 (optionally with R$); raises InvalidOperation."""
+    text = text.replace("R$", "").replace(" ", "").replace(" ", "")
+    if "," in text and text.rfind(",") > text.rfind("."):
+        text = text.replace(".", "").replace(",", ".")   # Brazilian: dot groups, comma decimals
+    else:
+        text = text.replace(",", "")
+    return Decimal(text)
+
+
 def parse(raw, user):
     """Parse CSV bytes into a list of row dicts, each with ``errors`` and ``duplicate`` flags."""
     if len(raw) > MAX_BYTES:
-        raise CsvImportError("The file is too large (limit 512 KB).")
+        raise CsvImportError("O arquivo é grande demais (limite de 512 KB).")
     text = _decode(raw)
     if text is None:
-        raise CsvImportError("Could not read the file. Save it as UTF-8 CSV.")
+        raise CsvImportError("Não foi possível ler o arquivo. Salve-o como CSV UTF-8.")
     try:
         dialect = csv.Sniffer().sniff(text[:2048], delimiters=",;\t")
     except csv.Error:
         dialect = csv.excel
     reader = csv.DictReader(io.StringIO(text), dialect=dialect)
     if not reader.fieldnames:
-        raise CsvImportError("The file is empty.")
-    fields = {(f or "").strip().lower(): f for f in reader.fieldnames}
+        raise CsvImportError("O arquivo está vazio.")
+    fields = {}
+    for f in reader.fieldnames:
+        key = (f or "").strip().lower()
+        fields.setdefault(HEADER_ALIASES.get(key, key), f)
     missing = [h for h in ("date", "type", "name", "amount") if h not in fields]
     if missing:
-        raise CsvImportError("Missing column(s): " + ", ".join(missing) + ". Expected: " + ", ".join(HEADER) + ".")
+        raise CsvImportError("Coluna(s) ausente(s): " + ", ".join(missing) + ". Esperado: " + ", ".join(HEADER) + ".")
 
     categories = {c.name.lower(): c for c in user.categories.all()}
     accounts = {a.name.lower(): a for a in user.accounts.all()}
@@ -89,7 +122,7 @@ def parse(raw, user):
     rows = []
     for number, raw_row in enumerate(reader, start=2):
         if len(rows) >= MAX_ROWS:
-            raise CsvImportError(f"Too many rows (limit {MAX_ROWS}).")
+            raise CsvImportError(f"Linhas demais (limite de {MAX_ROWS}).")
         def get(key):
             return unsafe_cell((raw_row.get(fields[key]) or "").strip()) if key in fields else ""
 
@@ -97,32 +130,32 @@ def parse(raw, user):
             continue
         errors = []
         row = {"line": number, "name": get("name"), "category": get("category"), "note": get("note"),
-               "kind": get("type").lower(), "date": None, "amount": None,
+               "kind": KIND_ALIASES.get(get("type").lower(), get("type").lower()), "date": None, "amount": None,
                "payee": get("payee"), "account": get("account"),
                "tags": [t.strip() for t in get("tags").split(";") if t.strip()]}
         try:
-            row["date"] = datetime.date.fromisoformat(get("date"))
-            if row["date"] < MIN_DATE or row["date"] > datetime.date.today() + datetime.timedelta(days=1):
-                errors.append("Date is out of range.")
+            row["date"] = parse_date(get("date"))
+            if row["date"] < MIN_DATE or row["date"] > timezone.localdate() + datetime.timedelta(days=1):
+                errors.append("Data fora do intervalo permitido.")
         except ValueError:
-            errors.append("Date must look like 2025-03-31.")
+            errors.append("A data deve estar no formato 31/03/2025 ou 2025-03-31.")
         if row["kind"] not in ("income", "expense"):
-            errors.append("Type must be income or expense.")
+            errors.append("O tipo deve ser receita (income) ou despesa (expense).")
         try:
-            amount = Decimal(get("amount").replace(",", ""))
+            amount = parse_amount(get("amount"))
             if not amount.is_finite() or amount < MIN_AMOUNT or amount > MAX_AMOUNT or amount != q2(amount):
                 raise InvalidOperation
             row["amount"] = q2(amount)
         except InvalidOperation:
-            errors.append("Amount must be a positive number with at most 2 decimals.")
+            errors.append("O valor deve ser um n\u00famero positivo com no m\u00e1ximo 2 casas decimais.")
         if not row["name"] or len(row["name"]) > 120:
-            errors.append("Name is required (max 120 characters).")
+            errors.append("A descri\u00e7\u00e3o \u00e9 obrigat\u00f3ria (m\u00e1ximo de 120 caracteres).")
         if len(row["payee"]) > 80:
-            errors.append("Payee is too long (max 80 characters).")
+            errors.append("Favorecido longo demais (m\u00e1ximo de 80 caracteres).")
         if row["account"] and row["account"].lower() not in accounts:
-            errors.append(f"Unknown account \u201c{row['account']}\u201d.")
+            errors.append(f"Conta desconhecida \u201c{row['account']}\u201d.")
         if len(row["tags"]) > 10 or any(len(t) > 30 for t in row["tags"]):
-            errors.append("Use at most 10 tags of up to 30 characters.")
+            errors.append("Use no m\u00e1ximo 10 tags de at\u00e9 30 caracteres.")
         row["rule_matched"] = False
         if not row["category"] and row["kind"] in ("income", "expense"):
             guess = suggest_category(user, f"{row['name']} {row['payee']}", row["kind"])
@@ -130,12 +163,12 @@ def parse(raw, user):
                 row["category"] = guess.name
                 row["rule_matched"] = True
         if not row["category"] or len(row["category"]) > 50:
-            errors.append("Category is required (max 50 characters) unless a rule matches the description.")
+            errors.append("A categoria é obrigatória (máximo de 50 caracteres), a menos que uma regra combine com a descrição.")
         if len(row["note"]) > 1000:
-            errors.append("Note is too long.")
+            errors.append("Observação longa demais.")
         cat = categories.get(row["category"].lower())
         if cat and row["kind"] in ("income", "expense") and not cat.accepts(row["kind"]):
-            errors.append(f"Category “{cat.name}” cannot be used for {row['kind']}.")
+            errors.append(f"A categoria “{cat.name}” não pode ser usada em {KIND_PLURAL[row['kind']]}.")
         row["new_category"] = bool(row["category"]) and cat is None
         row["errors"] = errors
         row["duplicate"] = False
@@ -145,7 +178,7 @@ def parse(raw, user):
             seen.add(key)
         rows.append(row)
     if not rows:
-        raise CsvImportError("The file has no data rows.")
+        raise CsvImportError("O arquivo não tem linhas de dados.")
     return rows
 
 

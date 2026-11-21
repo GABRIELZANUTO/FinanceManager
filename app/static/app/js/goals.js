@@ -2,6 +2,7 @@ import {
   $, api, clearErrors, confirmDialog, emptyState, errorState, formData, formatMoney, h, icon, openDialog, setMoney, showError,
   showErrors, toast, withBusy, wireDialog, wireMoneyInputs,
 } from './core.js';
+import { dateBR } from './format.js';
 
 const host = document.getElementById('goal-list');
 const dialog = document.getElementById('goal-dialog');
@@ -19,7 +20,7 @@ function ring(percent) {
   svg.setAttribute('viewBox', '0 0 72 72');
   svg.setAttribute('class', 'ring');
   svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', `${percent} percent saved`);
+  svg.setAttribute('aria-label', `${percent} por cento guardado`);
   const make = (cls, dash) => {
     const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     c.setAttribute('cx', '36'); c.setAttribute('cy', '36'); c.setAttribute('r', String(R)); c.setAttribute('class', cls);
@@ -39,31 +40,31 @@ function ring(percent) {
 
 function card(g) {
   const bar = h('div', { class: 'progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100',
-    'aria-valuenow': String(Math.round(g.percent)), 'aria-label': `${g.name} progress` }, h('span'));
+    'aria-valuenow': String(Math.round(g.percent)), 'aria-label': `Progresso de ${g.name}` }, h('span'));
   bar.firstChild.style.width = `${g.percent}%`;
-  const info = [h('div', {}, h('strong', { text: formatMoney(g.saved) }), h('span', { class: 'muted', text: ` of ${formatMoney(g.target_amount)}` }))];
-  if (g.complete) info.push(h('span', { class: 'tag income', text: 'Goal reached' }));
+  const info = [h('div', {}, h('strong', { text: formatMoney(g.saved) }), h('span', { class: 'muted', text: ` de ${formatMoney(g.target_amount)}` }))];
+  if (g.complete) info.push(h('span', { class: 'tag income', text: 'Meta atingida' }));
   else {
-    if (g.target_date) info.push(h('div', { class: 'muted small', text: `Target ${g.target_date}${g.overdue ? ' (past due)' : ''}` }));
-    if (g.required_monthly) info.push(h('div', { class: 'small', text: `Save ${formatMoney(g.required_monthly)} a month to get there` }));
-    else if (g.overdue) info.push(h('div', { class: 'small neg', text: `${formatMoney(g.remaining)} still to save` }));
-    else info.push(h('div', { class: 'muted small', text: `${formatMoney(g.remaining)} to go` }));
+    if (g.target_date) info.push(h('div', { class: 'muted small', text: `Data-alvo ${dateBR(g.target_date)}${g.overdue ? ' (vencida)' : ''}` }));
+    if (g.required_monthly) info.push(h('div', { class: 'small', text: `Guarde ${formatMoney(g.required_monthly)} por mês para chegar lá` }));
+    else if (g.overdue) info.push(h('div', { class: 'small neg', text: `Ainda faltam ${formatMoney(g.remaining)}` }));
+    else info.push(h('div', { class: 'muted small', text: `Faltam ${formatMoney(g.remaining)}` }));
   }
   const links = [];
-  if (g.account) links.push(`Account: ${g.account.name}`);
-  if (g.category) links.push(`Category: ${g.category.name}`);
-  const recent = g.contributions.slice(0, 3).map((c) => h('li', {}, h('span', { text: `${c.date}${c.note ? ` · ${c.note}` : ''}` }),
+  if (g.account) links.push(`Conta: ${g.account.name}`);
+  if (g.category) links.push(`Categoria: ${g.category.name}`);
+  const recent = g.contributions.slice(0, 3).map((c) => h('li', {}, h('span', { text: `${dateBR(c.date)}${c.note ? ` · ${c.note}` : ''}` }),
     h('span', { class: Number(c.amount) < 0 ? 'neg' : 'pos', text: formatMoney(c.amount) }),
-    h('button', { class: 'icon-btn danger', type: 'button', 'aria-label': 'Remove this contribution', onclick: () => removeContribution(c) }, icon('x'))));
+    h('button', { class: 'icon-btn danger', type: 'button', 'aria-label': 'Remover este aporte', onclick: () => removeContribution(c) }, icon('x'))));
   return h('article', { class: 'card goal', id: `goal-${g.id}` },
     h('div', { class: 'goal-head' }, ring(g.percent), h('div', { class: 'goal-title' }, h('h2', { text: g.name }), ...info)),
     bar,
     links.length ? h('p', { class: 'muted small', text: links.join(' · ') }) : null,
-    recent.length ? h('ul', { class: 'mini-list small' }, ...recent) : h('p', { class: 'muted small', text: 'No contributions yet.' }),
+    recent.length ? h('ul', { class: 'mini-list small' }, ...recent) : h('p', { class: 'muted small', text: 'Nenhum aporte ainda.' }),
     h('div', { class: 'actions' },
-      h('button', { class: 'btn btn-sm btn-primary', type: 'button', onclick: () => openContribute(g) }, icon('plus'), 'Add money'),
-      h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Edit ${g.name}`, onclick: () => openEdit(g) }, icon('pencil')),
-      h('button', { class: 'icon-btn danger', type: 'button', 'aria-label': `Delete ${g.name}`, onclick: () => remove(g) }, icon('trash-2'))));
+      h('button', { class: 'btn btn-sm btn-primary', type: 'button', onclick: () => openContribute(g) }, icon('plus'), 'Guardar dinheiro'),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Editar ${g.name}`, onclick: () => openEdit(g) }, icon('pencil')),
+      h('button', { class: 'icon-btn danger', type: 'button', 'aria-label': `Excluir ${g.name}`, onclick: () => remove(g) }, icon('trash-2'))));
 }
 
 async function load() {
@@ -72,8 +73,8 @@ async function load() {
     host.className = 'goal-grid';
     if (!goals.length) {
       host.className = '';
-      host.replaceChildren(emptyState('No goals yet', 'Name what you are saving for and how much it costs.',
-        h('button', { class: 'btn btn-primary', type: 'button', text: 'Create a goal', onclick: () => openEdit(null) })));
+      host.replaceChildren(emptyState('Nenhuma meta ainda', 'Dê um nome ao que você quer conquistar e quanto custa.',
+        h('button', { class: 'btn btn-primary', type: 'button', text: 'Criar meta', onclick: () => openEdit(null) })));
       return;
     }
     host.replaceChildren(...goals.map(card));
@@ -91,7 +92,7 @@ function openEdit(goal) {
   editing = goal;
   clearErrors(form);
   form.reset();
-  $('#goal-title').textContent = goal ? 'Edit goal' : 'New goal';
+  $('#goal-title').textContent = goal ? 'Editar meta' : 'Nova meta';
   if (goal) {
     form.elements.name.value = goal.name;
     setMoney(form.elements.target_amount, goal.target_amount);
@@ -106,9 +107,9 @@ form.addEventListener('submit', async (event) => {
   event.preventDefault();
   clearErrors(form);
   try {
-    await withBusy($('[data-submit]', form), () => api(editing ? `/api/goals/${editing.id}/` : '/api/goals/', { method: 'POST', body: formData(form) }));
+    await withBusy($('[data-submit]', form), () => api(editing ? `/api/goals/${editing.id}/` : '/api/goals/', { method: 'POST', body: formData(form), version: editing && editing.version }));
     dialog.close();
-    toast('Goal saved.');
+    toast('Meta salva.');
     await load();
   } catch (error) { showErrors(form, error); }
 });
@@ -118,7 +119,7 @@ function openContribute(goal) {
   clearErrors(cForm);
   cForm.elements.amount.value = goal.required_monthly ? '' : '';
   cForm.elements.note.value = '';
-  $('#contrib-title').textContent = `Add to ${goal.name}`;
+  $('#contrib-title').textContent = `Guardar em ${goal.name}`;
   openDialog(cDialog, '#contrib-amount');
 }
 
@@ -128,25 +129,25 @@ cForm.addEventListener('submit', async (event) => {
   try {
     await withBusy($('[data-submit]', cForm), () => api(`/api/goals/${contributing.id}/contributions/`, { method: 'POST', body: formData(cForm) }));
     cDialog.close();
-    toast('Saved.');
+    toast('Salvo.');
     await load();
   } catch (error) { showErrors(cForm, error); }
 });
 
 async function removeContribution(c) {
   try {
-    await api(`/api/contributions/${c.id}/`, { method: 'DELETE' });
-    toast('Contribution removed.');
+    await api(`/api/contributions/${c.id}/`, { method: 'DELETE', version: c.version });
+    toast('Aporte removido.');
     await load();
   } catch (error) { showError(error); }
 }
 
 async function remove(goal) {
-  const ok = await confirmDialog({ title: 'Delete goal', message: `Delete “${goal.name}” and its contributions?` });
+  const ok = await confirmDialog({ title: 'Excluir meta', message: `Excluir “${goal.name}” e todos os aportes?` });
   if (!ok) return;
   try {
-    await api(`/api/goals/${goal.id}/`, { method: 'DELETE' });
-    toast('Goal deleted.');
+    await api(`/api/goals/${goal.id}/`, { method: 'DELETE', version: goal.version });
+    toast('Meta excluída.');
     await load();
   } catch (error) { showError(error); }
 }

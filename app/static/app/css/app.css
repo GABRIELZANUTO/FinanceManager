@@ -211,6 +211,8 @@ table.table { width: 100%; border-collapse: collapse; }
 .table tfoot td { font-weight: 600; background: var(--surface-alt); border-bottom: 0; }
 .check-col { width: 34px; }
 .sort-ind { margin-left: 3px; color: var(--accent); }
+.th-sort { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.th-sort:hover { color: var(--text); }
 
 .tone { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: baseline; background: var(--tone-gray); flex: none; }
 .tone-gray { --tone: var(--tone-gray); } .tone-blue { --tone: var(--tone-blue); } .tone-teal { --tone: var(--tone-teal); }
@@ -266,7 +268,9 @@ table.table { width: 100%; border-collapse: collapse; }
 
 /* ---------- progress / lists ---------- */
 .progress { height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
+.progress { position: relative; }
 .progress > span { display: block; height: 100%; background: var(--accent); transition: width .2s ease; }
+.progress > .progress-planned { position: absolute; top: 0; background: repeating-linear-gradient(45deg, var(--accent-soft), var(--accent-soft) 4px, #c6d6e6 4px, #c6d6e6 8px); }
 .progress.over > span { background: var(--expense); }
 .progress.near > span { background: #c9962b; }
 .budget-row { padding: 12px 0; border-bottom: 1px solid var(--line); }
@@ -355,6 +359,9 @@ kbd { font-family: var(--mono); font-size: .82rem; padding: 1px 6px; border: 1px
 
 /* ---------- import ---------- */
 .row-error { color: var(--danger); font-size: .84rem; }
+/* Card statement preview: the description is a link that opens a small editor. */
+.row-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.row-link:hover { color: var(--accent-strong); }
 .import-summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 tr.is-dup td, tr.is-bad td { color: var(--muted); }
 tr.is-bad { background: var(--danger-bg); }
@@ -632,3 +639,138 @@ details.reconcile > summary { cursor: pointer; font-weight: 600; }
 .sidebar-top .brand { flex: 1; min-width: 0; padding-right: 0; font-size: .98rem; }
 .brand-text { white-space: nowrap; }
 @media (max-width: 860px) { .sidebar .collapse-btn, .sidebar .sidebar-top { display: none; } }
+
+/* ---------- month plan ---------- */
+.plan-head { flex-wrap: wrap; gap: 8px; }
+.plan-nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.plan-nav strong { min-width: 9.5em; text-align: center; }
+.plan > .grid, .plan .notice, .plan-filter { margin-top: 12px; }
+.plan .notice p { margin: 2px 0; }
+.plan .notice details { margin-top: 6px; }
+.plan-table tr.plan-future td { color: var(--muted); }
+.plan-table tr.plan-future td.num.pos { color: var(--income); }
+.plan-table tr.plan-future td.num.neg { color: var(--expense); }
+.chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
+.plan-summary { margin-top: 12px; padding: 10px 14px; }
+.plan-line { margin: 0; }
+.stat-balance { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.stat-balance-end { font-size: .95rem; margin: 2px 0; }
+.stat-balance-end strong { font-variant-numeric: tabular-nums; }
+.account-limit { margin: 6px 0; }
+.plan .mini-list .amt .btn { margin-left: 8px; }
+.account-limit .progress { margin-top: 4px; }
+
+/* ---------- debts and shared bills ---------- */
+.grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 760px) { .grid.cols-3 { grid-template-columns: 1fr; } }
+.person-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.person-head h2 { margin: 0; overflow-wrap: anywhere; }
+.person-tools { display: flex; gap: 2px; flex: none; }
+.person-planned { margin: 6px 0 10px; padding: 8px 10px; border: 1px dashed var(--line-strong); border-radius: var(--radius); }
+.person-planned h3 { margin: 0 0 4px; color: var(--muted); font-weight: 600; }
+.person .mini-list .amt { display: inline-flex; align-items: center; gap: 4px; }
+.check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 12px; margin-top: 4px; }
+fieldset.field { border: 0; padding: 0; margin: 0 0 12px; }
+fieldset.field legend { font-weight: 600; font-size: .9rem; margin-bottom: 2px; }
+#summary-text { width: 100%; font: inherit; font-size: .9rem; }
+
+/* ---------- dd/mm/aaaa date fields (see dates.js) ---------- */
+.date-field { position: relative; display: flex; align-items: center; width: 100%; }
+.date-field .date-text { flex: 1; min-width: 0; padding-right: 38px; font-variant-numeric: tabular-nums; }
+.date-field .date-pick { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); }
+.date-field .date-native { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
+.date-field .date-text[aria-invalid="true"], .date-field:has(.date-native[aria-invalid="true"]) .date-text { border-color: var(--danger); }
+
+/* ---------- phones and tablets ---------- */
+/* Long explanations under a number: the tile takes the whole row on narrow screens. */
+@media (max-width: 980px) { .grid.cols-4 > .stat-wide { grid-column: 1 / -1; } }
+/* Example text and long codes wrap instead of pushing the page sideways. */
+main code, main pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+main { min-width: 0; }
+/* Stacked tables: the selection box sits beside the first value instead of on top of it. */
+@media (max-width: 720px) {
+  .table.stack tr:has(td.check-col) td.check-col + td { padding-right: 44px; }
+  .table.stack td.check-col { top: 4px; right: 2px; }
+}
+/* Transactions filters: on phones only "Buscar" shows until "Mais filtros" is pressed. */
+.filters-toggle-cell { display: none; }
+@media (max-width: 560px) {
+  .filters-toggle-cell { display: flex; align-items: flex-end; grid-column: 1 / -1; }
+  #filters:not(.show-more) .filter-more { display: none; }
+}
+/* Debts: the three totals stay side by side, smaller. */
+@media (max-width: 760px) {
+  #people-totals.grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  #people-totals .stat { padding: 10px; }
+  #people-totals .stat .value { font-size: 1rem; }
+  #people-totals .stat .label, #people-totals .stat .note { font-size: .75rem; }
+}
+/* Page header buttons wrap nicely and share the width on phones. */
+@media (max-width: 560px) {
+  .page-head .actions, .page-actions { flex-wrap: wrap; }
+  .views-bar { flex-wrap: wrap; }
+}
+/* Touch screens: buttons and boxes big enough for a finger (about 40 px). */
+@media (pointer: coarse) {
+  .icon-btn { min-width: 40px; min-height: 40px; }
+  .btn { min-height: 40px; }
+  .btn-sm { min-height: 36px; }
+  .chip { min-height: 32px; padding: 4px 12px; }
+  input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
+  .date-field .date-text { padding-right: 46px; }
+  select, input[type="text"], input[type="search"], input[type="number"], input[type="email"], input[type="password"] { min-height: 40px; }
+}
+/* Modals on phones: almost the whole screen, footer buttons always visible. */
+@media (max-width: 560px) {
+  dialog { width: calc(100vw - 16px); max-width: none; margin: 8px auto; }
+  dialog:not(.search-dialog) { max-height: calc(100dvh - 16px); }
+  .dialog-body { max-height: calc(100dvh - 150px); }
+  .dialog-foot { position: sticky; bottom: 0; }
+  .dialog-foot .btn { flex: 1; }
+}
+/* With one tile on its own row, the tile left alone fills its row too (no empty half). */
+@media (max-width: 980px) {
+  .grid.cols-4 > .stat-wide:first-child ~ .stat:nth-child(4):last-child,
+  .grid.cols-4 > .stat:nth-child(3):has(+ .stat-wide:last-child) { grid-column: 1 / -1; }
+}
+.quick-add .btn, #quick-add .btn { white-space: nowrap; }
+
+/* quick add preview */
+.quick-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.quick-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chip-static.new { border-style: dashed; color: var(--accent-strong); }
+
+/* plan: occurrences that look already typed by hand */
+.match-list { list-style: none; padding: 0; margin: 6px 0 0; }
+.match-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0; border-top: 1px solid var(--line); }
+.match-actions { display: flex; gap: 6px; }
+/* privacy policy page */
+.auth-card.wide { max-width: 760px; }
+.privacy h1 { font-size: 1.5rem; margin: 0 0 4px; }
+.privacy h2 { font-size: 1.05rem; margin: 18px 0 4px; }
+.privacy p { line-height: 1.55; }
+.help-more { display: inline; }
+.help-more summary { display: inline; cursor: pointer; color: var(--accent-strong); }
+.help-more[open] { display: block; margin-top: 4px; }
+
+.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; min-width: 0; flex: 1; }
+
+/* Synchronisation (phone app) */
+.sync-indicator[data-state="ok"] { color: var(--income, #1f7a4d); }
+.sync-indicator[data-state="warn"] { color: #a26b00; }
+.sync-indicator[data-state="bad"] { color: var(--danger); }
+.sync-indicator[data-state="busy"] .icon { animation: sync-spin 1.2s linear infinite; }
+@keyframes sync-spin { to { transform: rotate(-360deg); } }
+@media (prefers-reduced-motion: reduce) { .sync-indicator[data-state="busy"] .icon { animation: none; } }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.tabs [role="tab"] { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; cursor: pointer; font: inherit; color: inherit; position: relative; }
+.tabs [role="tab"][aria-selected="true"] { border-bottom-color: var(--accent); font-weight: 600; }
+.tabs .badge { position: static; display: inline-block; margin-left: 4px; }
+.tabs .badge:empty { display: none; }
+.card.conflict { margin-bottom: 12px; }
+.sync-busy { margin: auto; inset: 0; position: fixed; border: 0; border-radius: var(--radius); padding: 28px 24px; max-width: 320px; text-align: center; }
+.sync-busy::backdrop { background: rgba(15, 23, 42, .55); }
+.sync-busy h2 { margin: 14px 0 6px; font-size: 1.1rem; }
+.sync-busy .spinner { display: inline-block; width: 36px; height: 36px; border: 4px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: sync-turn 0.9s linear infinite; }
+@keyframes sync-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sync-busy .spinner { animation-duration: 3s; } }

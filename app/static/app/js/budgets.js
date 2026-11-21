@@ -32,29 +32,31 @@ function renderStats() {
   const t = data.totals;
   const cards = [];
   if (o) {
-    cards.push(stat('Whole month', `${formatMoney(o.spent)} of ${formatMoney(o.available)}`, `${formatMoney(o.remaining)} left`, o.over ? 'neg' : ''));
-    cards.push(stat('Safe to spend per day', formatMoney(o.safe_per_day), 'For the rest of this month'));
-    cards.push(stat('Projected month end', formatMoney(o.projected), o.projected_over ? 'On pace to go over' : 'On pace to stay within',
-      o.projected_over ? 'neg' : 'pos'));
+    cards.push(stat('Mês inteiro', `${formatMoney(o.spent)} de ${formatMoney(o.available)}`, `Restam ${formatMoney(o.remaining)}`, o.over ? 'neg' : ''));
+    cards.push(stat('Pode gastar por dia', formatMoney(o.safe_per_day), 'Até o fim deste mês'));
+    // Spent so far plus what is still to come this month (future-dated entries and recurring items).
+    cards.push(stat('Previsto até o fim do mês', formatMoney(o.with_planned),
+      o.planned_over ? `Com o que ainda vem (${formatMoney(o.planned)}) passa do limite` : `Inclui ${formatMoney(o.planned)} que ainda vem; fica dentro do limite`,
+      o.planned_over ? 'neg' : 'pos'));
   } else {
-    cards.push(stat('All spending', formatMoney(t.all_spent), 'No overall budget set'));
+    cards.push(stat('Todos os gastos', formatMoney(t.all_spent), 'Nenhum orçamento geral definido'));
   }
-  cards.push(stat('Categories', `${data.budgets.length}`, t.over ? `${t.over} over budget` : t.warn ? `${t.warn} near the limit` : 'All within limits', t.over ? 'neg' : ''));
+  cards.push(stat('Categorias', `${data.budgets.length}`, t.over ? `${t.over} acima do orçamento` : t.warn ? `${t.warn} perto do limite` : 'Todas dentro do limite', t.over ? 'neg' : ''));
   stats.replaceChildren(...cards.slice(0, 4));
 }
 
 function actions(b) {
   return h('span', { class: 'row-actions' },
-    h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Edit ${b.category ? b.category.name : 'overall'} budget`, onclick: () => openEdit(b) }, icon('pencil')),
-    h('button', { class: 'icon-btn danger', type: 'button', 'aria-label': `Remove ${b.category ? b.category.name : 'overall'} budget`, onclick: () => remove(b) }, icon('trash-2')));
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Editar orçamento ${b.category ? `de ${b.category.name}` : 'geral'}`, onclick: () => openEdit(b) }, icon('pencil')),
+    h('button', { class: 'icon-btn danger', type: 'button', 'aria-label': `Remover orçamento ${b.category ? `de ${b.category.name}` : 'geral'}`, onclick: () => remove(b) }, icon('trash-2')));
 }
 
 function renderList() {
   const items = (data.overall ? [data.overall] : []).concat(data.budgets);
   list.className = '';
   if (!items.length) {
-    list.replaceChildren(emptyState('No budgets for this month', 'Set a limit for the whole month or for a category.',
-      h('button', { class: 'btn btn-primary', type: 'button', text: 'Set a budget', onclick: () => openEdit(null) })));
+    list.replaceChildren(emptyState('Nenhum orçamento para este mês', 'Defina um limite para o mês inteiro ou para uma categoria.',
+      h('button', { class: 'btn btn-primary', type: 'button', text: 'Definir orçamento', onclick: () => openEdit(null) })));
     return;
   }
   list.replaceChildren(...items.map((b) => {
@@ -68,12 +70,12 @@ function renderWeekly() {
   const host = document.getElementById('weekly');
   host.className = '';
   const items = (data.overall ? [data.overall] : []).concat(data.budgets);
-  if (!items.length) { host.replaceChildren(emptyState('Nothing to break down', 'Budgets appear here week by week.')); return; }
-  const head = h('tr', {}, h('th', { text: 'Budget' }), ...data.weeks.map((w) => h('th', { class: 'num', text: `Days ${w.start}-${w.end}` })));
-  const body = items.map((b) => h('tr', {}, h('td', { text: b.category ? b.category.name : 'Whole month' }),
+  if (!items.length) { host.replaceChildren(emptyState('Nada para detalhar', 'Os orçamentos aparecem aqui semana a semana.')); return; }
+  const head = h('tr', {}, h('th', { text: 'Orçamento' }), ...data.weeks.map((w) => h('th', { class: 'num', text: `Dias ${w.start} a ${w.end}` })));
+  const body = items.map((b) => h('tr', {}, h('td', { text: b.category ? b.category.name : 'Mês inteiro' }),
     ...b.weekly.map((spent, i) => {
       const over = Number(spent) > Number(b.weekly_limit[i]);
-      return h('td', { class: `num ${over ? 'neg' : ''}` }, formatMoney(spent), h('span', { class: 'muted small block', text: `of ${formatMoney(b.weekly_limit[i])}` }));
+      return h('td', { class: `num ${over ? 'neg' : ''}` }, formatMoney(spent), h('span', { class: 'muted small block', text: `de ${formatMoney(b.weekly_limit[i])}` }));
     })));
   host.replaceChildren(h('div', { class: 'table-wrap' }, h('table', { class: 'table' }, h('thead', {}, head), h('tbody', {}, ...body))));
 }
@@ -81,15 +83,15 @@ function renderWeekly() {
 function renderBva() {
   const box = document.getElementById('bva-chart');
   const items = (data.overall ? [data.overall] : []).concat(data.budgets);
-  if (!items.length) { box.replaceChildren(emptyState('No budgets', '')); return; }
-  const rows = items.map((b) => ({ name: b.category ? b.category.name : 'Whole month', limit: b.available, spent: b.spent }));
+  if (!items.length) { box.replaceChildren(emptyState('Nenhum orçamento', '')); return; }
+  const rows = items.map((b) => ({ name: b.category ? b.category.name : 'Mês inteiro', limit: b.available, spent: b.spent }));
   if (views.bva === 'table') {
-    box.replaceChildren(dataTable([{ label: 'Budget', get: (r) => r.name }, { label: 'Limit', num: true, get: (r) => formatMoney(r.limit) },
-      { label: 'Spent', num: true, get: (r) => formatMoney(r.spent) }], rows));
+    box.replaceChildren(dataTable([{ label: 'Orçamento', get: (r) => r.name }, { label: 'Limite', num: true, get: (r) => formatMoney(r.limit) },
+      { label: 'Gasto', num: true, get: (r) => formatMoney(r.spent) }], rows));
     return;
   }
   groupedBars(box, rows.map((r) => ({ label: r.name.slice(0, 8), long: r.name, a: r.limit, b: r.spent })),
-    Math.max(240, box.clientWidth), { title: 'Budget and actual', aName: 'Budget', bName: 'Spent', aClass: 'm-budget', bClass: 'm-expense' });
+    Math.max(240, box.clientWidth), { title: 'Orçado e realizado', aName: 'Orçado', bName: 'Gasto', aClass: 'm-budget', bClass: 'm-expense' });
 }
 
 function renderHistory() {
@@ -97,14 +99,14 @@ function renderHistory() {
   if (!history) return;
   const rows = history;
   if (views.history === 'table') {
-    box.replaceChildren(dataTable([{ label: 'Month', get: (r) => monthLong(r.month) },
-      { label: 'Budget', num: true, get: (r) => (r.limit ? formatMoney(r.limit) : '-') },
-      { label: 'Spent', num: true, get: (r) => formatMoney(r.spent) },
-      { label: 'Used', num: true, get: (r) => (r.percent === null ? '-' : `${r.percent}%`) }], rows));
+    box.replaceChildren(dataTable([{ label: 'Mês', get: (r) => monthLong(r.month) },
+      { label: 'Orçamento', num: true, get: (r) => (r.limit ? formatMoney(r.limit) : '-') },
+      { label: 'Gasto', num: true, get: (r) => formatMoney(r.spent) },
+      { label: 'Usado', num: true, get: (r) => (r.percent === null ? '-' : `${r.percent}%`) }], rows));
     return;
   }
   groupedBars(box, rows.map((r) => ({ label: monthShort(r.month), long: monthLong(r.month), a: r.limit || 0, b: r.spent })),
-    Math.max(240, box.clientWidth), { title: 'Budget history', aName: 'Budget', bName: 'Spent', aClass: 'm-budget', bClass: 'm-expense' });
+    Math.max(240, box.clientWidth), { title: 'Histórico do orçamento', aName: 'Orçado', bName: 'Gasto', aClass: 'm-budget', bClass: 'm-expense' });
 }
 
 async function load() {
@@ -145,10 +147,10 @@ async function openEdit(budget) {
   const options = categories.filter((c) => c.kind !== 'income' && (budget ? budget.category && c.id === budget.category.id : !used.has(c.id)));
   const overallTaken = Boolean(data.overall);
   const choices = [];
-  if (!overallTaken || (budget && !budget.category)) choices.push(h('option', { value: '', text: 'Whole month (all spending)' }));
+  if (!overallTaken || (budget && !budget.category)) choices.push(h('option', { value: '', text: 'Mês inteiro (todos os gastos)' }));
   select.replaceChildren(...choices, ...options.map((c) => h('option', { value: c.id, text: c.full_name })));
   $('#budget-month-name').textContent = monthLong(month);
-  $('#budget-title').textContent = budget ? 'Edit budget' : 'Set budget';
+  $('#budget-title').textContent = budget ? 'Editar orçamento' : 'Definir orçamento';
   if (budget) {
     select.value = budget.category ? String(budget.category.id) : '';
     setMoney(form.elements.amount, budget.limit);
@@ -164,8 +166,8 @@ async function openEdit(budget) {
 
 async function remove(budget) {
   try {
-    await api(`/api/budgets/${budget.id}/`, { method: 'DELETE' });
-    toast('Budget removed.');
+    await api(`/api/budgets/${budget.id}/`, { method: 'DELETE', version: budget.version });
+    toast('Orçamento removido.');
     await load();
   } catch (e) { showError(e); }
 }
@@ -179,7 +181,7 @@ form.addEventListener('submit', async (event) => {
   try {
     await withBusy($('[data-submit]', form), () => api('/api/budgets/', { method: 'POST', body }));
     dialog.close();
-    toast('Budget saved.');
+    toast('Orçamento salvo.');
     await load();
   } catch (e) { showErrors(form, e); }
 });
@@ -187,7 +189,7 @@ form.addEventListener('submit', async (event) => {
 $('#copy-last').addEventListener('click', async () => {
   try {
     const result = await api('/api/budgets/copy/', { method: 'POST', body: { from: shift(month, -1), to: month } });
-    toast(`Copied ${result.copied} budget(s) from last month.`);
+    toast(`${result.copied} orçamento(s) copiado(s) do mês passado.`);
     await load();
   } catch (e) { showError(e); }
 });
@@ -195,7 +197,7 @@ $('#copy-last').addEventListener('click', async () => {
 $$('[data-toggle-table]').forEach((button) => button.addEventListener('click', () => {
   const key = button.closest('.chart-card').querySelector('#bva-chart') ? 'bva' : 'history';
   views[key] = views[key] === 'chart' ? 'table' : 'chart';
-  button.textContent = views[key] === 'chart' ? 'Show table' : 'Show chart';
+  button.textContent = views[key] === 'chart' ? 'Mostrar tabela' : 'Mostrar gráfico';
   button.setAttribute('aria-pressed', String(views[key] === 'table'));
   if (key === 'bva') renderBva(); else renderHistory();
 }));

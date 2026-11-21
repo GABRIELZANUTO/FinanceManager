@@ -4,9 +4,9 @@ from app import services
 
 
 class Command(BaseCommand):
-    help = "Create every due recurring transaction (safe to run repeatedly, e.g. daily from cron)."
+    help = "Lança todas as recorrências vencidas (pode rodar várias vezes, por exemplo diariamente pelo agendador)."
 
     def handle(self, *args, **options):
         created = services.apply_due()
         purged = services.purge_deleted()
-        self.stdout.write(f"Created {created} transaction(s); removed {purged} deleted transaction(s) past the undo window.")
+        self.stdout.write(f"{created} transação(ões) criada(s); {purged} transação(ões) excluída(s) há mais de 30 dias removida(s) da lixeira.")

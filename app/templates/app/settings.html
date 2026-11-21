@@ -1,12 +1,13 @@
 {% extends "app/base.html" %}
 {% load static %}
-{% block title %}Settings{% endblock %}
-{% block heading %}Settings{% endblock %}
+{% block title %}Configurações{% endblock %}
+{% block heading %}Configurações{% endblock %}
 {% block content %}
 <div class="grid cols-2">
   <form class="card" method="post" action="{% url 'settings' %}" novalidate>
     {% csrf_token %}
-    <div class="card-head"><h2>Profile and display</h2></div>
+    <input type="hidden" name="version" value="{{ profile_version }}">
+    <div class="card-head"><h2>Perfil e exibição</h2></div>
     {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
     {% include "app/_field.html" with field=form.display_name %}
     <div class="form-grid">
@@ -15,55 +16,74 @@
     </div>
     {% include "app/_field.html" with field=form.number_format %}
     {% include "app/_field.html" with field=form.allow_negative_balance %}
+    {% include "app/_field.html" with field=form.default_account %}
+    <p class="help">Para onde vão os lançamentos quando nenhuma conta é escolhida (por exemplo, no lançamento rápido sem conta). Sem escolha, é a primeira da lista: os bancos aparecem primeiro.</p>
+    {% include "app/_field.html" with field=form.card_date_mode %}
+    <p class="help">Vale para tudo o que entra num cartão de crédito: importação da fatura, lançamento rápido, cadastro manual e recorrências. "No mês da fatura": a transação fica com a data de vencimento da fatura em que a compra cai (usando o dia de fechamento do cartão), e a data real da compra fica guardada e aparece na observação.</p>
     <div class="form-grid">
       {% include "app/_field.html" with field=form.secondary_currency_code %}
       {% include "app/_field.html" with field=form.secondary_rate %}
     </div>
-    <p class="help">Optional. Shows an approximate second currency on the dashboard using a rate you enter yourself. Nothing is looked up online.</p>
-    <p class="help">Overdrafts: when blocked, an expense that would take the balance below zero is rejected with a clear message.</p>
-    <p><button class="btn btn-primary" type="submit">Save settings</button></p>
+    <p class="help">Opcional. Mostra no painel um valor aproximado em uma segunda moeda, usando uma cotação que você mesmo informa. Nada é consultado na internet.</p>
+    <p class="help">Saldo negativo: quando bloqueado, uma despesa que deixaria o saldo abaixo de zero é recusada com uma mensagem explicando o motivo.</p>
+    <p><button class="btn btn-primary" type="submit">Salvar configurações</button></p>
   </form>
-  <form class="card" method="post" action="{% url 'change_password' %}" novalidate data-validate="password">
+  {% if not app_mode %}<form class="card" method="post" action="{% url 'change_password' %}" novalidate data-validate="password">
     {% csrf_token %}
-    <div class="card-head"><h2>Change password</h2></div>
+    <div class="card-head"><h2>Alterar senha</h2></div>
     {% if password_form.non_field_errors %}<div class="form-error" role="alert">{{ password_form.non_field_errors }}</div>{% endif %}
     {% include "app/_field.html" with field=password_form.old_password %}
     {% include "app/_field.html" with field=password_form.new_password1 meter=True %}
     {% include "app/_field.html" with field=password_form.new_password2 match=True %}
-    <p><button class="btn btn-primary" type="submit">Change password</button></p>
-  </form>
+    <p><button class="btn btn-primary" type="submit">Alterar senha</button></p>
+  </form>{% endif %}
 </div>
 <section class="card" aria-labelledby="locks-h">
-  <div class="card-head"><h2 id="locks-h">Closed months</h2></div>
-  <p class="muted">Close a month once you have checked it. Its transactions can no longer be added, changed or deleted by accident. Reopen it any time.</p>
+  <div class="card-head"><h2 id="locks-h">Meses fechados</h2></div>
+  <p class="muted">Feche um mês depois de conferi-lo. As transações dele não poderão mais ser adicionadas, alteradas ou excluídas por engano. Você pode reabri-lo quando quiser.</p>
   <form class="actions" method="post" action="{% url 'lock_month' %}">{% csrf_token %}
-    <label class="sr-only" for="lock-month">Month</label><input id="lock-month" name="month" type="month" value="{{ current_month }}" required>
-    <button class="btn" type="submit" name="action" value="close">{% icon "lock" %}Close month</button>
+    <label class="sr-only" for="lock-month">Mês</label><input id="lock-month" name="month" type="month" value="{{ current_month }}" required>
+    <button class="btn" type="submit" name="action" value="close">{% icon "lock" %}Fechar mês</button>
   </form>
-  {% if locks %}<ul class="mini-list">{% for l in locks %}<li><span>{% icon "lock" %} {{ l.month|date:"F Y" }}</span>
-    <form method="post" action="{% url 'lock_month' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ l.month|date:'Y-m' }}"><button class="btn btn-sm" type="submit" name="action" value="reopen">Reopen</button></form></li>{% endfor %}</ul>{% endif %}
+  {% if locks %}<ul class="mini-list">{% for l in locks %}<li><span>{% icon "lock" %} {{ l.month|date:"F \d\e Y" }}</span>
+    <form method="post" action="{% url 'lock_month' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ l.month|date:'Y-m' }}"><button class="btn btn-sm" type="submit" name="action" value="reopen">Reabrir</button></form></li>{% endfor %}</ul>{% endif %}
 </section>
 <div class="card">
-  <div class="card-head"><h2>Your data</h2></div>
-  <p class="muted">Download everything as a spreadsheet-friendly file, or bring transactions in from another tool.</p>
-  <p class="actions"><a class="btn" href="{% url 'export' %}" download>Export all as CSV</a><a class="btn" href="{% url 'import' %}">Import CSV</a><a class="btn" href="{% url 'backup' %}">Backup and restore</a></p>
+  <div class="card-head"><h2>Seus dados</h2></div>
+  <p class="muted">Baixe tudo em um arquivo que abre em planilhas, ou traga transações de outra ferramenta.</p>
+  <p class="actions"><a class="btn" href="{% url 'export' %}" download>Exportar tudo em CSV</a><a class="btn" href="{% url 'import' %}">Importar CSV</a><a class="btn" href="{% url 'backup' %}">Backup e restauração</a></p>
 </div>
+{% if not app_mode %}<section class="card" aria-labelledby="keys-h">
+  <div class="card-head"><h2 id="keys-h">Acesso pela API e dispositivos</h2></div>
+  <p class="muted">Chaves para o aplicativo do celular ou outros programas acessarem seus dados. Cada chave aparece uma única vez; guarde-a e revogue a que não usar mais. <a href="/api/v1/docs/">Como usar a API</a>.</p>
+  <form id="key-form" class="actions" novalidate>
+    <label class="sr-only" for="key-name">Nome da chave</label><input id="key-name" name="name" type="text" maxlength="60" placeholder="Ex.: Planilha de casa" required>
+    <label><input type="checkbox" name="scopes" value="write"> Pode alterar</label>
+    <label><input type="checkbox" name="scopes" value="sync"> Pode sincronizar</label>
+    <label class="sr-only" for="key-days">Validade</label><select id="key-days" name="expires_days"><option value="">Sem validade</option><option value="30">30 dias</option><option value="365">1 ano</option></select>
+    <button class="btn" type="submit">Criar chave</button>
+  </form>
+  <div id="key-new" class="notice" hidden></div>
+  <div id="key-list" class="loading" aria-live="polite"></div>
+</section>{% endif %}
+<p class="small muted"><a href="{% url 'privacy' %}">Política de privacidade</a></p>
 <section class="card danger-zone" aria-labelledby="dz-h">
-  <div class="card-head"><h2 id="dz-h">Erase or delete</h2></div>
+  <div class="card-head"><h2 id="dz-h">Apagar ou excluir</h2></div>
   <div class="grid cols-2">
     <form method="post" action="{% url 'erase_data' %}" novalidate>{% csrf_token %}
-      <h3>Erase all my data</h3><p class="muted small">Removes every transaction, budget and goal but keeps your account. Download a backup first.</p>
-      <div class="field"><label for="erase-confirm">Type ERASE</label><input id="erase-confirm" name="confirm" type="text" autocomplete="off"></div>
-      <div class="field"><label for="erase-pw">Your password</label><input id="erase-pw" name="password" type="password" autocomplete="current-password"></div>
-      <button class="btn btn-danger" type="submit">Erase my data</button>
+      <h3>Apagar todos os meus dados</h3><p class="muted small">Remove todas as transações, orçamentos e metas, mas mantém sua conta de usuário. Baixe um backup antes.</p>
+      <div class="field"><label for="erase-confirm">Digite APAGAR</label><input id="erase-confirm" name="confirm" type="text" autocomplete="off"></div>
+      {% if not app_mode %}<div class="field"><label for="erase-pw">Sua senha</label><input id="erase-pw" name="password" type="password" autocomplete="current-password"></div>{% endif %}
+      <button class="btn btn-danger" type="submit">Apagar meus dados</button>
     </form>
-    <form method="post" action="{% url 'delete_account' %}" novalidate>{% csrf_token %}
-      <h3>Delete my account</h3><p class="muted small">Permanently deletes your account and all of its data.</p>
-      <div class="field"><label for="del-confirm">Type your username ({{ user.username }})</label><input id="del-confirm" name="confirm" type="text" autocomplete="off"></div>
-      <div class="field"><label for="del-pw">Your password</label><input id="del-pw" name="password" type="password" autocomplete="current-password"></div>
-      <button class="btn btn-danger" type="submit">Delete my account</button>
-    </form>
+    {% if not app_mode %}<form method="post" action="{% url 'delete_account' %}" novalidate>{% csrf_token %}
+      <h3>Excluir minha conta</h3><p class="muted small">Exclui definitivamente sua conta de usuário e todos os dados dela.</p>
+      <div class="field"><label for="del-confirm">Digite seu nome de usuário ({{ user.username }})</label><input id="del-confirm" name="confirm" type="text" autocomplete="off"></div>
+      <div class="field"><label for="del-pw">Sua senha</label><input id="del-pw" name="password" type="password" autocomplete="current-password"></div>
+      <button class="btn btn-danger" type="submit">Excluir minha conta</button>
+    </form>{% endif %}
   </div>
 </section>
 {% endblock %}
-{% block scripts %}<script type="module" src="{% static 'app/js/password.js' %}"></script>{% endblock %}
+{% block scripts %}<script type="module" src="{% static 'app/js/password.js' %}?v={{ asset_version }}"></script>
+{% if not app_mode %}<script type="module" src="{% static 'app/js/api-keys.js' %}?v={{ asset_version }}"></script>{% endif %}{% endblock %}

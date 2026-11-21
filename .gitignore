@@ -6,6 +6,9 @@ venv/
 
 # Local configuration and data
 .env
+.env.producao
+*.sqlite3-wal
+*.sqlite3-shm
 db.sqlite3
 *.sqlite3
 staticfiles/
@@ -15,3 +18,27 @@ media/
 .coverage
 htmlcov/
 .screenshots-tmp/
+
+# Google credentials (scripts/autorizar_google_drive.py): never in git
+client_secret*.json
+backup_drive.json
+backup_drive.lock
+
+# This installation only: site address, Discloud app id, packages built for upload
+expensemanager/local_settings.py
+discloud.config
+discloud-publicar/
+*.zip
+
+# Android signing (if ever copied here)
+*.jks
+*.keystore
+keystore.properties
+
+# Editors and logs
+.vscode/
+.idea/
+.claude/
+*.log
+.DS_Store
+Thumbs.db

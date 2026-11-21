@@ -13,6 +13,7 @@ def ensure_profile(sender, instance, created, **kwargs):
             defaults={
                 "currency_code": settings.DEFAULT_CURRENCY_CODE,
                 "currency_symbol": settings.DEFAULT_CURRENCY_SYMBOL,
+                "number_format": settings.DEFAULT_NUMBER_FORMAT,
             },
         )
 

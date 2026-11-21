@@ -11,25 +11,25 @@ if (form) {
 
   const checks = {
     id_full_name(input) {
-      if (!input.value.trim()) return 'Enter your name. One word is fine.';
+      if (!input.value.trim()) return 'Informe seu nome. Uma palavra já basta.';
       return '';
     },
     id_username(input) {
       const value = input.value.trim();
-      if (!value) return 'Choose a username.';
-      if (value.length > 150) return 'Use 150 characters or fewer.';
-      if (!/^[\w.@+-]+$/.test(value)) return 'Use letters, numbers and @ . + - _ only.';
-      if (usernameState.value === value.toLowerCase() && usernameState.ok === false) return 'That username is already taken.';
+      if (!value) return 'Escolha um nome de usuário.';
+      if (value.length > 150) return 'Use no máximo 150 caracteres.';
+      if (!/^[\w.@+-]+$/.test(value)) return 'Use apenas letras, números e @ . + - _';
+      if (usernameState.value === value.toLowerCase() && usernameState.ok === false) return 'Esse nome de usuário já está em uso.';
       return '';
     },
     id_email(input) {
       const value = input.value.trim();
-      if (!value) return 'Enter your email address.';
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'That does not look like an email address.';
+      if (!value) return 'Informe seu e-mail.';
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Isso não parece um endereço de e-mail.';
       return '';
     },
-    id_password1: (input) => (input.value ? passwordProblem(input) : 'Choose a password.'),
-    id_password2: (input) => (input.value !== el('id_password1').value ? 'The two passwords do not match yet.' : (input.value ? '' : 'Repeat the password.')),
+    id_password1: (input) => (input.value ? passwordProblem(input) : 'Escolha uma senha.'),
+    id_password2: (input) => (input.value !== el('id_password1').value ? 'As duas senhas ainda não são iguais.' : (input.value ? '' : 'Repita a senha.')),
   };
 
   function show(input, quiet = false) {
@@ -37,7 +37,7 @@ if (form) {
     if (input.id === 'id_password1' || input.id === 'id_password2') return problem; // password.js renders these
     if (!touched.has(input.id) && !quiet) return problem;
     const ok = !problem && input.value.trim() !== '';
-    setHint(hintOf(input), problem || (ok ? (input.id === 'id_username' && usernameState.ok ? 'Username is available.' : 'Looks good.') : ''), ok);
+    setHint(hintOf(input), problem || (ok ? (input.id === 'id_username' && usernameState.ok ? 'Nome de usuário disponível.' : 'Tudo certo.') : ''), ok);
     if (problem) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
     return problem;
   }

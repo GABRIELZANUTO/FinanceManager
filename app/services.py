@@ -1,6 +1,8 @@
 """Business rules: balances, overdraft policy, defaults and recurring items."""
 import calendar
 import datetime
+import re
+import unicodedata
 from contextlib import contextmanager
 from decimal import Decimal
 
@@ -10,9 +12,10 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
-from .formatting import format_money
+from .formatting import format_money, month_label
 from .models import (
-    Account, AuditEntry, Category, CategoryRule, MonthLock, Profile, RecurringTransaction, Tag, Transaction, Transfer,
+    Account, AuditEntry, Category, CategoryRule, LedgerEntry, MonthLock, Profile, RecurringTransaction, Tag, Transaction,
+    Transfer,
 )
 
 ZERO = Decimal("0.00")
@@ -20,16 +23,16 @@ CENT = Decimal("0.01")
 
 DEFAULT_CATEGORIES = (
     # name, kind, colour, icon
-    ("Salary", "income", "green", "banknote"),
-    ("Other income", "income", "olive", "coins"),
-    ("Groceries", "expense", "teal", "shopping-cart"),
-    ("Rent", "expense", "plum", "house"),
-    ("Utilities", "expense", "blue", "zap"),
-    ("Transport", "expense", "amber", "bus"),
-    ("Dining out", "expense", "red", "utensils"),
-    ("Health", "expense", "teal", "heart-pulse"),
-    ("Shopping", "expense", "gray", "shopping-bag"),
-    ("Other", "both", "gray", "ellipsis"),
+    ("Salário", "income", "green", "banknote"),
+    ("Outras receitas", "income", "olive", "coins"),
+    ("Mercado", "expense", "teal", "shopping-cart"),
+    ("Aluguel", "expense", "plum", "house"),
+    ("Contas da casa", "expense", "blue", "zap"),
+    ("Transporte", "expense", "amber", "bus"),
+    ("Restaurantes", "expense", "red", "utensils"),
+    ("Saúde", "expense", "teal", "heart-pulse"),
+    ("Compras", "expense", "gray", "shopping-bag"),
+    ("Outros", "both", "gray", "ellipsis"),
 )
 
 
@@ -45,6 +48,7 @@ def get_profile(user):
             defaults={
                 "currency_code": settings.DEFAULT_CURRENCY_CODE,
                 "currency_symbol": settings.DEFAULT_CURRENCY_SYMBOL,
+                "number_format": settings.DEFAULT_NUMBER_FORMAT,
             },
         )
         user._profile_cache = profile
@@ -65,10 +69,14 @@ def create_default_categories(user):
 
 
 def default_account(user):
-    """The account new transactions go to (created on first use)."""
-    account = Account.objects.filter(user=user, archived=False).order_by("id").first()
+    """Where entries go when no account is chosen: the one picked in Settings, else the first
+    account of the list (banks come first, so it is never a card by accident). Created on first use."""
+    chosen = get_profile(user).default_account
+    if chosen is not None and chosen.user_id == user.pk and not chosen.archived:
+        return chosen
+    account = Account.objects.filter(user=user, archived=False).first()
     if account is None:
-        account = Account.objects.create(user=user, name="Main account", type="bank")
+        account = Account.objects.create(user=user, name="Conta principal", type="bank")
     return account
 
 
@@ -138,21 +146,40 @@ def balance_for(user, before=None):
     Transfers move money between accounts and cancel out, so they do not appear here.
     """
     opening = Account.objects.filter(user=user).aggregate(total=Sum("opening_balance"))["total"] or ZERO
-    income, expense = income_expense(user, end=before - datetime.timedelta(days=1) if before else None)
-    return q2(opening + income - expense)
+    last = before - datetime.timedelta(days=1) if before else None
+    income, expense = income_expense(user, end=last)
+    # Money lent, borrowed or paid back through an account (debts module) moves the balance too.
+    debts = ledger_money(user, until=last).aggregate(t=Sum("amount"))["t"] or ZERO
+    return q2(opening + income - expense - debts)
 
 
-def account_balances(user):
-    """{account_id: Decimal} for all of the user's accounts, in a handful of queries."""
+def ledger_money(user, until=None):
+    """Debt entries that really moved money through an account (not planned ones)."""
+    qs = LedgerEntry.objects.filter(person__user=user, account__isnull=False, planned=False)
+    return qs.filter(date__lte=until) if until else qs
+
+
+def account_balances(user, until=None):
+    """{account_id: Decimal} for all of the user's accounts, in a handful of queries.
+
+    With ``until``, only movements up to that day count (card purchases dated later are left out).
+    """
     balances = {a.pk: q2(a.opening_balance) for a in Account.objects.filter(user=user)}
-    rows = Transaction.objects.filter(user=user, account__isnull=False).values("account_id").annotate(
+    txs = Transaction.objects.filter(user=user, account__isnull=False)
+    transfers = Transfer.objects.filter(user=user)
+    if until:
+        txs = txs.filter(date__lte=until)
+        transfers = transfers.filter(date__lte=until)
+    rows = txs.values("account_id").annotate(
         income=Sum("amount", filter=Q(kind="income")), expense=Sum("amount", filter=Q(kind="expense")))
     for r in rows:
         balances[r["account_id"]] += q2(r["income"] or ZERO) - q2(r["expense"] or ZERO)
-    for r in Transfer.objects.filter(user=user).values("from_account_id").annotate(t=Sum("amount")):
+    for r in transfers.values("from_account_id").annotate(t=Sum("amount")):
         balances[r["from_account_id"]] -= q2(r["t"])
-    for r in Transfer.objects.filter(user=user).values("to_account_id").annotate(t=Sum("amount")):
+    for r in transfers.values("to_account_id").annotate(t=Sum("amount")):
         balances[r["to_account_id"]] += q2(r["t"])
+    for r in ledger_money(user, until).values("account_id").annotate(t=Sum("amount")):
+        balances[r["account_id"]] -= q2(r["t"])   # money_effect is minus the amount
     return balances
 
 
@@ -182,22 +209,26 @@ def ensure_funds(user, delta, account=None):
     """Raise InsufficientFunds if applying ``delta`` would overdraw a disallowed account.
 
     Credit accounts may go negative. Without an account the overall balance is checked.
+    Money dated later (a salary typed in advance) does not pay for anything yet, while expenses
+    already scheduled do count: the lower of "today" and "with everything" is used.
     """
     if delta >= 0 or allows_negative(user):
         return
+    tomorrow = timezone.localdate() + datetime.timedelta(days=1)
     if account is not None:
         if account.is_credit:
             return
-        current = account_balance(account)
-        label = f"{account.name} balance"
+        current = min(account_balances(user, until=tomorrow - datetime.timedelta(days=1)).get(account.pk, ZERO),
+                      account_balance(account))
+        label = f"o saldo de {account.name}"
     else:
-        current = balance_for(user)
-        label = "balance"
+        current = min(balance_for(user, before=tomorrow), balance_for(user))
+        label = "o seu saldo"
     if current + delta < 0:
         raise InsufficientFunds(
-            f"This would take your {label} below zero "
-            f"(currently {format_money(current, get_profile(user))}). "
-            "Allow negative balances in Settings to proceed."
+            f"Isso deixaria {label} abaixo de zero "
+            f"(hoje: {format_money(current, get_profile(user))}). "
+            "Permita saldo negativo em Configurações para continuar."
         )
 
 
@@ -260,8 +291,8 @@ def ensure_unlocked(user, *days):
     for day in days:
         if day and month_start(day) in closed:
             raise MonthClosed(
-                f"{day:%B %Y} is closed, so its transactions cannot be changed. "
-                "Reopen the month in Settings first."
+                f"O mês de {month_label(day)} está fechado, então as transações dele não podem ser alteradas. "
+                "Reabra o mês em Configurações primeiro."
             )
 
 
@@ -275,6 +306,12 @@ def snapshot(tx):
 
 def record(user, tx_id, action, summary="", before=None, after=None):
     AuditEntry.objects.create(user=user, transaction_id=tx_id, action=action, summary=summary[:300], before=before, after=after)
+
+
+FIELD_LABELS = {
+    "name": "descrição", "amount": "valor", "date": "data", "kind": "tipo", "category": "categoria", "account": "conta",
+    "payee": "favorecido", "note": "observação", "tags": "tags",
+}
 
 
 def changed_fields(before, after):
@@ -306,11 +343,11 @@ def save_transaction(instance, tags=None, action=None):
         instance = Transaction.objects.select_related("account", "category").prefetch_related("tags").get(pk=instance.pk)
         after = snapshot(instance)
         if before is None:
-            record(user, instance.pk, action or "created", f"Added {instance.name} ({instance.amount:.2f})", None, after)
+            record(user, instance.pk, action or "created", f"Adicionada: {instance.name} ({instance.amount:.2f})", None, after)
         else:
             fields = changed_fields(before, after)
             if fields:
-                record(user, instance.pk, "updated", "Changed " + ", ".join(fields), before, after)
+                record(user, instance.pk, "updated", "Alterado: " + ", ".join(FIELD_LABELS.get(f, f) for f in fields), before, after)
     return instance
 
 
@@ -323,7 +360,7 @@ def delete_transactions(user, queryset):
         ids = [t.pk for t in rows]
         Transaction.objects.filter(pk__in=ids).update(deleted_at=timezone.now())
         for t in rows:
-            record(user, t.pk, "deleted", f"Deleted {t.name} ({t.amount:.2f})", snapshot(t), None)
+            record(user, t.pk, "deleted", f"Excluída: {t.name} ({t.amount:.2f})", snapshot(t), None)
     return ids
 
 
@@ -335,7 +372,7 @@ def restore_transactions(user, ids):
         ensure_effects(user, [(t.account, t.effect) for t in rows])
         qs.update(deleted_at=None)
         for t in rows:
-            record(user, t.pk, "restored", f"Restored {t.name}", None, snapshot(t))
+            record(user, t.pk, "restored", f"Restaurada: {t.name}", None, snapshot(t))
     return [t.pk for t in rows]
 
 
@@ -345,8 +382,34 @@ def change_category(user, ids, category):
         ensure_unlocked(user, *[t.date for t in rows])
         for t in rows:
             if t.category_id != category.pk:
-                record(user, t.pk, "updated", "Changed category", {"category": t.category.name}, {"category": category.name})
+                record(user, t.pk, "updated", "Alterado: categoria", {"category": t.category.name}, {"category": category.name})
         Transaction.objects.filter(pk__in=[t.pk for t in rows]).update(category=category, updated_at=timezone.now())
+
+
+def change_dates(user, ids, date=None, shift_months=None):
+    """Move transactions to one ``date``, or by ``shift_months`` keeping each day of the month.
+
+    Returns the number of transactions moved. Closed months (old or new date) block the change.
+    """
+    from .models import validate_transaction_date
+
+    with locked(user):
+        rows = list(Transaction.objects.filter(user=user, pk__in=ids))
+        moves = []
+        for t in rows:
+            new = date if date is not None else add_months(t.date, shift_months)
+            try:
+                validate_transaction_date(new)
+            except ValidationError as exc:
+                raise ValidationError(f"{t.name}: {exc.messages[0]}") from None
+            if new != t.date:
+                moves.append((t, new))
+        ensure_unlocked(user, *[t.date for t, _ in moves], *[new for _, new in moves])
+        now = timezone.now()
+        for t, new in moves:
+            record(user, t.pk, "updated", "Alterado: data", {"date": t.date.isoformat()}, {"date": new.isoformat()})
+            Transaction.objects.filter(pk=t.pk).update(date=new, updated_at=now)
+        return len(moves)
 
 
 def set_reconciled(user, ids, value):
@@ -375,7 +438,7 @@ def create_split(user, base, parts, tags=None):
             if tags:
                 set_tags(tx, tags)
             made.append(tx)
-            record(user, tx.pk, "created", f"Added {tx.name} ({tx.amount:.2f}), part of a split", None,
+            record(user, tx.pk, "created", f"Adicionada: {tx.name} ({tx.amount:.2f}), parte de uma divisão", None,
                    snapshot(Transaction.objects.select_related("category", "account").get(pk=tx.pk)))
     return made
 
@@ -407,12 +470,16 @@ def purge_deleted(older_than=datetime.timedelta(days=TRASH_DAYS)):
 # --- recurring ---------------------------------------------------------------
 
 def following_date(item, current):
+    if item.frequency == RecurringTransaction.ONCE:
+        return current + datetime.timedelta(days=1)   # past its end date, so the item finishes
     if item.frequency == RecurringTransaction.WEEKLY:
         return current + datetime.timedelta(weeks=1)
     return add_months(current, 1, anchor_day=item.start_date.day)
 
 
 def first_due_on_or_after(item, day):
+    if item.frequency == RecurringTransaction.ONCE:
+        return max(item.start_date, day)
     due = item.start_date
     # jump close to the target to keep this cheap for old schedules
     if item.frequency == RecurringTransaction.WEEKLY:
@@ -429,6 +496,121 @@ def first_due_on_or_after(item, day):
 
 MAX_CATCH_UP = 400
 
+# --- installments and entries typed by hand -----------------------------------
+
+_PLAN_SUFFIX = re.compile(r"\s*\((?:parcelado em \d{1,3}x|\d{1,3}/\d{1,3})\)\s*$", re.IGNORECASE)
+MATCH_DAYS = 10
+
+
+def base_name(name):
+    """A name without "(parcelado em 10x)" or "(3/10)"."""
+    return _PLAN_SUFFIX.sub("", name or "").strip()
+
+
+def installment_number(item, due):
+    months = (due.year - item.start_date.year) * 12 + due.month - item.start_date.month
+    return (item.installment_first or 1) + months
+
+
+def plan_name(base, total):
+    return f"{base[:100]} (parcelado em {total}x)"
+
+
+def occurrence_name(item, due):
+    """What one occurrence is called: installments read "Geladeira (3/10)", like on the card invoice."""
+    if item.installment_total:
+        return f"{base_name(item.name)[:110]} ({installment_number(item, due)}/{item.installment_total})"
+    return item.name
+
+
+def _words(text):
+    text = unicodedata.normalize("NFKD", base_name(text)).encode("ascii", "ignore").decode().lower()
+    return " ".join(re.findall(r"[a-z0-9]+", text))
+
+
+def similar_names(a, b):
+    a, b = _words(a), _words(b)
+    if not a or not b:
+        return False
+    return a == b or (min(len(a), len(b)) >= 4 and (a in b or b in a))
+
+
+def amounts_close(a, b):
+    return abs(a - b) <= max(Decimal("1.00"), max(a, b) * Decimal("0.05"))
+
+
+def manual_candidates(user, start, end):
+    """Transactions not linked to any recurring item, around a period (they may be one typed by hand)."""
+    margin = datetime.timedelta(days=MATCH_DAYS)
+    return list(Transaction.objects.filter(user=user, recurring__isnull=True, date__gte=start - margin,
+                                           date__lte=end + margin).only("id", "name", "payee", "amount", "kind", "date",
+                                                                        "account_id"))
+
+
+def rejected_matches(item):
+    """{(slot, transaction id)} the person said are different things (see RecurringMatch)."""
+    from .models import RecurringMatch
+    return set(RecurringMatch.objects.filter(recurring=item, decision=RecurringMatch.DIFFERENT)
+               .values_list("slot", "transaction_id"))
+
+
+def find_manual_match(item, due, account_id, candidates, used=(), rejected=()):
+    """The transaction typed by hand that looks like this occurrence: same account and kind, a
+    similar name, about the same amount, within a few days. None if there is no such transaction."""
+    best = None
+    for tx in candidates:
+        if tx.pk in used or tx.kind != item.kind or tx.account_id != account_id or (due, tx.pk) in rejected:
+            continue
+        if abs((tx.date - due).days) > MATCH_DAYS or not amounts_close(tx.amount, item.amount):
+            continue
+        if not (similar_names(tx.name, item.name) or (item.payee and similar_names(tx.payee or tx.name, item.payee))):
+            continue
+        score = (abs(tx.amount - item.amount), abs((tx.date - due).days))
+        if best is None or score < best[0]:
+            best = (score, tx)
+    return best[1] if best else None
+
+
+# Installments keep the category of what was bought; this tag tells them apart.
+INSTALLMENT_TAG = "parcelado"
+
+
+def post_occurrence(item, due, account=None):
+    """Create the transaction of one occurrence (checks closed months and the overdraft policy)."""
+    account = account or item.account or default_account(item.user)
+    tx = Transaction(
+        user=item.user, name=occurrence_name(item, due), amount=item.amount, kind=item.kind,
+        category=item.category, note=item.note, date=due, payee=item.payee,
+        account=account, recurring=item, recurring_date=due,
+    )
+    if account.is_credit:        # a card: dated by the card rule (month of the invoice or of the purchase)
+        from .planning import apply_card_rule
+        apply_card_rule(item.user, tx, due)
+    with transaction.atomic():
+        ensure_unlocked(item.user, due)
+        ensure_funds(item.user, tx.effect, tx.account)
+        tx.save()
+        if item.installment_total:
+            set_tags(tx, [INSTALLMENT_TAG])
+        record(item.user, tx.pk, "created", f"Adicionada: {tx.name} (recorrência)", None, snapshot(tx))
+    return tx
+
+
+def decide_match(item, slot, tx, decision):
+    """The person's answer to "is this the same thing?" (see RecurringMatch)."""
+    from .models import RecurringMatch
+    with locked(item.user):
+        match, _ = RecurringMatch.objects.get_or_create(recurring=item, slot=slot, transaction=tx)
+        match.decision = decision
+        match.save(update_fields=["decision"])
+        taken = Transaction.all_objects.filter(recurring=item, recurring_date=slot).exists()
+        if decision == RecurringMatch.SAME and not taken and tx.recurring_id is None:
+            Transaction.objects.filter(pk=tx.pk).update(recurring=item, recurring_date=slot)
+            record(item.user, tx.pk, "updated", f"Vinculada à recorrência “{item.name}” (confirmado)", None, None)
+        elif decision == RecurringMatch.DIFFERENT and not taken and slot < item.next_due:
+            post_occurrence(item, slot)   # its date already passed while waiting for the answer
+    return match
+
 
 def apply_recurring_item(item, today=None):
     """Create every due occurrence of one item. Idempotent. Returns the count."""
@@ -443,19 +625,18 @@ def apply_recurring_item(item, today=None):
         due = item.next_due
         if item.end_date and due > item.end_date:
             break
+        account = item.account or default_account(item.user)
+        typed = None
         if not Transaction.all_objects.filter(recurring=item, recurring_date=due).exists():
-            tx = Transaction(
-                user=item.user, name=item.name, amount=item.amount, kind=item.kind,
-                category=item.category, note=item.note, date=due, payee=item.payee,
-                account=item.account or default_account(item.user),
-                recurring=item, recurring_date=due,
-            )
+            typed = find_manual_match(item, due, account.pk, manual_candidates(item.user, due, due),
+                                      rejected=rejected_matches(item))
+        if typed is not None:
+            # Looks already typed by hand: ask instead of linking or posting it twice (see RecurringMatch).
+            from .models import RecurringMatch
+            RecurringMatch.objects.get_or_create(recurring=item, slot=due, transaction=typed)
+        elif not Transaction.all_objects.filter(recurring=item, recurring_date=due).exists():
             try:
-                with transaction.atomic():
-                    ensure_unlocked(item.user, due)
-                    ensure_funds(item.user, tx.effect, tx.account)
-                    tx.save()
-                    record(item.user, tx.pk, "created", f"Added {tx.name} from a recurring item", None, snapshot(tx))
+                post_occurrence(item, due, account)
                 created += 1
             except ValidationError as exc:
                 error = "; ".join(exc.messages)[:200]

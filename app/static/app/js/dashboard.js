@@ -1,7 +1,14 @@
-import { $, api, emptyState, errorState, formatMoney, formatNumber, h, icon, showError, toast, today } from './core.js';
-import { monthLong } from './format.js';
+import { $, api, emptyState, errorState, formatMoney, formatNumber, h, icon, showError, toast, withBusy } from './core.js';
+import { dateBR, monthLong } from './format.js';
 import { budgetRow, catLabel } from './parts.js';
 import { openTransactionDialog } from './tx-dialog.js';
+
+// The overview counts everything dated up to the last day of the current month.
+function monthEnd() {
+  const now = new Date();
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`;
+}
 
 function setStat(id, value, note, { tint, warn } = {}) {
   const card = document.getElementById(id);
@@ -14,15 +21,15 @@ function setStat(id, value, note, { tint, warn } = {}) {
 }
 
 function change(previous, pct, goodWhenUp) {
-  if (pct === null || pct === undefined) return Number(previous) === 0 ? 'No data last month' : '';
+  if (pct === null || pct === undefined) return Number(previous) === 0 ? 'Sem dados no mês passado' : '';
   const up = pct > 0;
   const good = pct === 0 ? null : up === goodWhenUp;
-  return [h('span', { class: good === null ? '' : good ? 'pos' : 'neg', text: `${up ? '+' : ''}${pct}%` }), ' vs last month'];
+  return [h('span', { class: good === null ? '' : good ? 'pos' : 'neg', text: `${up ? '+' : ''}${pct}%` }), ' em relação ao mês passado'];
 }
 
 function stamp() {
   const now = new Date();
-  $('#updated').textContent = `Updated ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  $('#updated').textContent = `Atualizado às ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 async function loadSummary() {
@@ -31,12 +38,24 @@ async function loadSummary() {
     const data = await api('/api/summary/');
     box.hidden = true;
     $('#month-label').textContent = monthLong(data.month);
-    const approx = secondary(data, data.balance);
-    setStat('stat-balance', formatMoney(data.balance), data.overdrawn ? 'Overdrawn' : approx || 'Across all accounts',
-      { tint: Number(data.balance) < 0 ? 'neg' : null, warn: data.overdrawn });
+    // Money (banks, cash, wallets) as of today; below, what still comes in or goes out this month
+    // and what is owed on the cards.
+    const approx = secondary(data, data.money_today);
+    const lastDay = dateBR(data.until).slice(0, 5);
+    const ahead = Number(data.money) - Number(data.money_today);
+    const parts = [];
+    if (Math.abs(ahead) >= 0.005) {
+      parts.push(`${ahead > 0 ? '+' : '-'} ${formatMoney(Math.abs(ahead))} ${ahead > 0 ? 'a entrar' : 'a sair'} até ${lastDay}. Nos bancos no fim do mês: ${formatMoney(data.money)}`);
+    }
+    if (Number(data.card_debt)) parts.push(`Faturas a pagar: ${formatMoney(data.card_debt)}`);
+    if (Number(data.estimate)) parts.push(`Gastos estimados: ${formatMoney(data.estimate)}`);
+    if (Number(data.balance) !== Number(data.money)) parts.push(`Livre no fim do mês: ${formatMoney(data.balance)}`);
+    const note = parts.join('. ') || 'Saldo de hoje em bancos, dinheiro e carteiras';
+    setStat('stat-balance', formatMoney(data.money_today), data.overdrawn ? `Saldo negativo. ${note}` : approx ? `${approx}. ${note}` : note,
+      { tint: Number(data.money_today) < 0 ? 'neg' : null, warn: data.overdrawn });
     setStat('stat-income', formatMoney(data.income), change(data.previous.income, data.changes.income, true));
     setStat('stat-expense', formatMoney(data.expense), change(data.previous.expense, data.changes.expense, false));
-    const rate = data.savings_rate === null ? 'No income yet this month' : `Savings rate ${data.savings_rate}%`;
+    const rate = data.savings_rate === null ? 'Nenhuma receita neste mês ainda' : `Taxa de poupança ${data.savings_rate}%`;
     setStat('stat-net', formatMoney(data.net), rate, { tint: Number(data.net) < 0 ? 'neg' : Number(data.net) > 0 ? 'pos' : null });
     stamp();
   } catch (error) {
@@ -48,17 +67,17 @@ async function loadSummary() {
 async function loadRecent() {
   const host = $('#recent');
   try {
-    const data = await api('/api/transactions/', { query: { page_size: 10 } });
+    const data = await api('/api/transactions/', { query: { page_size: 10, date_to: monthEnd() } });
     host.className = '';
     if (!data.transactions.length) {
-      host.replaceChildren(emptyState('No transactions yet', 'Add your first one to see it here.',
-        h('button', { class: 'btn btn-primary', type: 'button', text: 'Add transaction', 'data-new-transaction': '' })));
+      host.replaceChildren(emptyState('Nenhuma transação ainda', 'Adicione a primeira para vê-la aqui.',
+        h('button', { class: 'btn btn-primary', type: 'button', text: 'Adicionar transação', 'data-new-transaction': '' })));
       return;
     }
     const list = h('ul', { class: 'mini-list' });
     for (const t of data.transactions.slice(0, 8)) {
       list.append(h('li', {},
-        h('span', {}, t.name, h('span', { class: 'sub' }, catLabel(t.category, 'span'), ` · ${t.date}`)),
+        h('span', {}, t.name, h('span', { class: 'sub' }, catLabel(t.category, 'span'), ` · ${dateBR(t.date)}`)),
         h('span', { class: `amt ${t.kind === 'income' ? 'pos' : 'neg'}`, text: (t.kind === 'income' ? '+' : '-') + formatMoney(t.amount) })));
     }
     host.replaceChildren(list);
@@ -75,12 +94,12 @@ async function loadBudgets() {
     host.className = '';
     const items = (data.overall ? [data.overall] : []).concat(data.budgets.slice().sort((a, b) => b.percent - a.percent).slice(0, 5));
     if (!items.length) {
-      host.replaceChildren(emptyState('No budgets set', 'Set monthly limits to keep spending in check.',
-        h('a', { class: 'btn', href: '/budgets/', text: 'Set a budget' })));
+      host.replaceChildren(emptyState('Nenhum orçamento definido', 'Defina limites mensais para controlar os gastos.',
+        h('a', { class: 'btn', href: '/budgets/', text: 'Definir orçamento' })));
       return;
     }
     const rows = items.map((b) => budgetRow(b));
-    if (data.overall) rows.push(h('p', { class: 'small muted', text: `Safe to spend ${formatMoney(data.overall.safe_per_day)} per day for the rest of the month.` }));
+    if (data.overall) rows.push(h('p', { class: 'small muted', text: `Você pode gastar ${formatMoney(data.overall.safe_per_day)} por dia até o fim do mês.` }));
     host.replaceChildren(...rows);
   } catch (error) {
     host.className = '';
@@ -95,11 +114,37 @@ async function loadAccounts() {
     host.className = '';
     const active = data.accounts.filter((a) => !a.archived);
     host.replaceChildren(h('ul', { class: 'mini-list' }, ...active.map((a) => h('li', {},
-      h('span', { class: 'cat-label' }, icon(a.icon, 'cat-icon'), a.name),
+      h('span', { class: 'cat-label' }, icon(a.icon, 'cat-icon'), a.name,
+        a.type === 'credit' && a.available ? h('span', { class: 'sub', text: `Disponível ${formatMoney(a.available)}` }) : null),
       h('span', { class: `amt ${Number(a.balance) < 0 ? 'neg' : ''}`, text: formatMoney(a.balance) })))));
   } catch (error) {
     host.className = '';
     host.replaceChildren(errorState(error.message, loadAccounts));
+  }
+}
+
+async function loadPlan() {
+  const host = $('#plan-line');
+  if (!host) return;
+  try {
+    const p = await api('/api/plan/');
+    const t = p.totals;
+    const parts = [
+      h('strong', { text: 'Previsão até o fim do mês: ' }), h('span', {}, 'entra ', h('strong', { class: 'pos', text: formatMoney(t.income) }),
+        ', sai ', h('strong', { class: 'neg', text: formatMoney(Number(t.expense) + Number(t.estimate)) }),
+        ' e sobra ', h('strong', { class: Number(t.result) < 0 ? 'neg' : 'pos', text: formatMoney(t.result) }), '.'),
+    ];
+    if (p.bank) {
+      parts.push(h('span', { class: 'muted' }, ' Nos bancos no fim do mês: ',
+        h('strong', { class: Number(p.bank.end) < 0 ? 'neg' : '', text: formatMoney(p.bank.end) }), '.'));
+      if (p.bank.first_negative) parts.push(h('span', { class: 'neg', text: ` Atenção: fica negativo em ${dateBR(p.bank.first_negative)}.` }));
+    }
+    parts.push(h('span', { class: 'muted' }, ' Livre no fim do mês: ',
+      h('strong', { class: Number(p.balance.end) < 0 ? 'neg' : '', text: formatMoney(p.balance.end) }), '.'));
+    host.replaceChildren(h('p', { class: 'plan-line' }, ...parts, ' ', h('a', { href: '/analytics/#plano', text: 'Ver o planejamento' })));
+    host.hidden = false;
+  } catch (error) {
+    host.hidden = true;
   }
 }
 
@@ -121,32 +166,32 @@ async function loadInsights() {
     const bills = $('#bills');
     bills.className = '';
     bills.replaceChildren(data.bills.length ? h('ul', { class: 'mini-list' }, ...data.bills.map((b) => h('li', {},
-      h('span', {}, b.name, h('span', { class: `sub ${b.days <= 3 ? 'neg' : ''}`, text: b.days < 0 ? `Overdue since ${b.due}` : b.days === 0 ? 'Due today' : `Due ${b.due} (in ${b.days} day${b.days === 1 ? '' : 's'})` })),
+      h('span', {}, b.name, h('span', { class: `sub ${b.days <= 3 ? 'neg' : ''}`, text: b.days < 0 ? `Vencida desde ${dateBR(b.due)}` : b.days === 0 ? 'Vence hoje' : `Vence em ${dateBR(b.due)} (daqui a ${b.days} dia${b.days === 1 ? '' : 's'})` })),
       h('span', { class: 'amt', text: formatMoney(b.amount) }))))
-      : emptyState('Nothing due soon', 'Add rent, subscriptions or loans as recurring bills.', h('a', { class: 'btn', href: '/recurring/', text: 'Add a bill' })));
+      : emptyState('Nada vencendo em breve', 'Cadastre aluguel, assinaturas ou empréstimos como contas recorrentes.', h('a', { class: 'btn', href: '/recurring/', text: 'Adicionar conta' })));
 
     const goals = $('#goals');
     goals.className = '';
     goals.replaceChildren(data.goals.length ? h('div', {}, ...data.goals.map((g) => {
-      const bar = h('div', { class: 'progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(g.percent)), 'aria-label': `${g.name} progress` }, h('span'));
+      const bar = h('div', { class: 'progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(g.percent)), 'aria-label': `Progresso de ${g.name}` }, h('span'));
       bar.firstChild.style.width = `${g.percent}%`;
       return h('div', { class: 'budget-row' }, h('div', { class: 'budget-top' }, h('strong', { text: g.name })),
-        h('div', { class: 'budget-amt' }, h('span', { text: `${formatMoney(g.saved)} of ${formatMoney(g.target)}` }), h('span', { class: 'muted', text: `${g.percent}%` })), bar);
-    })) : emptyState('No goals yet', 'Name something you are saving for.', h('a', { class: 'btn', href: '/goals/', text: 'Create a goal' })));
+        h('div', { class: 'budget-amt' }, h('span', { text: `${formatMoney(g.saved)} de ${formatMoney(g.target)}` }), h('span', { class: 'muted', text: `${g.percent}%` })), bar);
+    })) : emptyState('Nenhuma meta ainda', 'Dê um nome para algo que você está guardando dinheiro.', h('a', { class: 'btn', href: '/goals/', text: 'Criar meta' })));
 
     const movers = $('#movers');
     movers.className = '';
     const row = (m, cls) => h('li', {}, h('span', {}, h('span', { class: `tone tone-${m.color}` }), m.name),
       h('span', { class: `amt ${cls}`, text: `${Number(m.change) > 0 ? '+' : '-'}${formatMoney(Math.abs(Number(m.change)))}` }));
     const items = data.movers.up.map((m) => row(m, 'neg')).concat(data.movers.down.map((m) => row(m, 'pos')));
-    movers.replaceChildren(items.length ? h('ul', { class: 'mini-list' }, ...items) : emptyState('Not enough data yet', 'Come back after a few more transactions.'));
+    movers.replaceChildren(items.length ? h('ul', { class: 'mini-list' }, ...items) : emptyState('Ainda não há dados suficientes', 'Volte depois de registrar mais algumas transações.'));
 
     const subs = $('#subs');
     subs.className = '';
     subs.replaceChildren(data.subscriptions.length ? h('ul', { class: 'mini-list' }, ...data.subscriptions.map((x) => h('li', {},
-      h('span', {}, x.name, h('span', { class: 'sub', text: `${x.months} months in a row${x.tracked ? ', already a bill' : `, next about ${x.next_date}`}` })),
+      h('span', {}, x.name, h('span', { class: 'sub', text: `${x.months} meses seguidos${x.tracked ? ', já cadastrada como conta' : `, próxima por volta de ${dateBR(x.next_date)}`}` })),
       h('span', { class: 'amt', text: formatMoney(x.amount) }))))
-      : emptyState('No repeating payments found', 'They show up after three months of similar payments.'));
+      : emptyState('Nenhum pagamento repetido encontrado', 'Eles aparecem depois de três meses de pagamentos parecidos.'));
     return data;
   } catch (error) {
     for (const id of ['bills', 'goals', 'movers', 'subs']) {
@@ -162,7 +207,7 @@ async function loadAlerts() {
   const card = $('#alerts');
   try {
     const data = await api('/api/notifications/');
-    // budget alerts are already spelled out in "How you are doing"
+    // budget alerts are already spelled out in "Como você está indo"
     const items = data.notifications.filter((n) => n.kind !== 'budget');
     card.hidden = items.length === 0;
     $('#alert-list').replaceChildren(...items.map((n) => h('li', { class: n.level },
@@ -190,87 +235,58 @@ $('#load-sample').addEventListener('click', async (event) => {
   event.target.disabled = true;
   try {
     await api('/api/sample-data/', { method: 'POST' });
-    toast('Sample data added.');
+    toast('Dados de exemplo adicionados.');
     window.location.reload();
   } catch (error) { event.target.disabled = false; showError(error); }
 });
 
-/* ---------- quick add: "coffee 150 food" ---------- */
-
-function knownCategories() {
-  return Array.from(document.querySelectorAll('#tx-category option')).filter((o) => o.value)
-    .map((o) => ({ id: o.value, name: o.textContent.trim(), kind: o.dataset.kind }));
-}
-
-export function parseQuick(text, categories) {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  let kind = 'expense';
-  let date = today();
-  let amount = null;
-  const rest = [];
-  for (let i = words.length - 1; i >= 0; i -= 1) {
-    const word = words[i];
-    if (amount === null && /^[+-]?\d[\d,]*(\.\d+)?$/.test(word)) {
-      if (word.startsWith('+')) kind = 'income';
-      amount = word.replace(/^[+-]/, '').replace(/,/g, '');
-    } else rest.unshift(word);
-  }
-  const keep = [];
-  for (const word of rest) {
-    const lower = word.toLowerCase();
-    if (lower === 'yesterday') { date = today(-1); }
-    else if (lower === 'today') date = today();
-    else if (lower === 'income') kind = 'income';
-    else keep.push(word);
-  }
-  let category = null;
-  let nameWords = keep;
-  for (let i = keep.length - 1; i >= 0 && !category; i -= 1) {
-    const word = keep[i].toLowerCase();
-    const found = categories.find((c) => (c.kind === 'both' || c.kind === kind)
-      && (c.name.toLowerCase() === word || c.name.toLowerCase().split(' / ').pop() === word
-        || (word.length >= 3 && c.name.toLowerCase().startsWith(word))));
-    if (found && keep.length > 1) { category = found; nameWords = keep.filter((_, j) => j !== i); }
-  }
-  const name = nameWords.join(' ') || (category ? category.name : '');
-  return { name: name.charAt(0).toUpperCase() + name.slice(1), amount, kind, date, category };
-}
+/* ---------- quick add: "Bolo 50,00 restaurante conta principal" ---------- */
+// The server reads the line (app/quick.py): name, amount, category and account by similarity.
 
 const form = $('#quick-add');
 const preview = $('#quick-preview');
 
-async function showPreview(event) {
-  event.preventDefault();
-  const parsed = parseQuick($('#quick-input').value, knownCategories());
-  if (!parsed.amount || !parsed.name) {
-    preview.replaceChildren(h('span', { class: 'neg', text: 'Add a description and an amount, for example: coffee 150 food' }));
+async function showPreview(event, pickedCategory = null) {
+  if (event) event.preventDefault();
+  const text = $('#quick-input').value;
+  let p;
+  try {
+    ({ preview: p } = await api('/api/quick/', { method: 'POST', body: { text, category: pickedCategory } }));
+  } catch (error) {
+    preview.replaceChildren(h('span', { class: 'neg', text: error.message }));
     preview.hidden = false;
     return;
   }
-  if (!parsed.category) {
-    try {
-      const { category } = await api('/api/rules/suggest/', { query: { text: parsed.name, kind: parsed.kind } });
-      if (category) parsed.category = { id: String(category.id), name: category.full_name };
-    } catch (error) { /* fall back to the dialog */ }
-  }
-  const chip = (text, cls = '') => h('span', { class: `chip-static ${cls}`, text });
-  const save = h('button', { class: 'btn btn-primary btn-sm', type: 'button', text: 'Add', onclick: () => commit(parsed) });
-  const edit = h('button', { class: 'btn btn-sm', type: 'button', text: 'Edit details', onclick: () => {
-    openTransactionDialog(null, { name: parsed.name, amount: parsed.amount, kind: parsed.kind, date: parsed.date, category: parsed.category && parsed.category.id });
+  const chip = (label, cls = '') => h('span', { class: `chip-static ${cls}`, text: label });
+  const category = p.category ? chip(p.category.name)
+    : p.new_category ? chip(`${p.new_category} (categoria nova)`, 'new') : chip('Sem categoria', 'neg');
+  const chosen = p.category ? p.category.id : null;
+  const save = h('button', { class: 'btn btn-primary btn-sm', type: 'button', text: 'Adicionar', onclick: () => commit(text, save, pickedCategory || chosen) });
+  // A new category close to an existing one: offer the existing one instead.
+  const suggest = p.new_category && p.suggestion ? h('p', { class: 'small' },
+    `Não achei "${p.new_category}" nas suas categorias. `,
+    h('button', { class: 'btn btn-sm', type: 'button', text: `Usar ${p.suggestion.name}`, onclick: () => showPreview(null, p.suggestion.id) }),
+    ' ou adicione para criar a categoria nova.') : null;
+  const edit = h('button', { class: 'btn btn-sm', type: 'button', text: 'Editar detalhes', onclick: () => {
+    openTransactionDialog(null, { name: p.name, amount: p.amount, kind: p.kind, date: p.date,
+      category: p.category && p.category.id, account: p.account.id });
   } });
-  const cancel = h('button', { class: 'btn btn-quiet btn-sm', type: 'button', text: 'Cancel', onclick: () => { preview.hidden = true; } });
+  const cancel = h('button', { class: 'btn btn-quiet btn-sm', type: 'button', text: 'Cancelar', onclick: () => { preview.hidden = true; } });
   preview.replaceChildren(
-    chip(parsed.name), chip(`${parsed.kind === 'income' ? '+' : '-'}${formatMoney(parsed.amount)}`, parsed.kind === 'income' ? 'pos' : 'neg'),
-    chip(parsed.category ? parsed.category.name : 'No category yet', parsed.category ? '' : 'neg'), chip(parsed.date), save, edit, cancel);
+    h('div', { class: 'quick-chips' },
+      chip(p.name), chip(`${p.kind === 'income' ? '+' : '-'}${formatMoney(p.amount)}`, p.kind === 'income' ? 'pos' : 'neg'),
+      category, chip(`${p.account.credit ? 'Cartão: ' : ''}${p.account.name}`), chip(dateBR(p.date))),
+    suggest || '',
+    ...p.notes.map((note) => h('p', { class: 'small muted', text: note })),
+    h('div', { class: 'quick-actions' }, save, edit, cancel));
   preview.hidden = false;
-  if (!parsed.category) save.disabled = true;
+  if (!p.category && !p.new_category) save.disabled = true;
 }
 
-async function commit(parsed) {
+async function commit(text, button, category = null) {
   try {
-    const result = await api('/api/transactions/', { method: 'POST', body: {
-      name: parsed.name, amount: parsed.amount, kind: parsed.kind, date: parsed.date, category: parsed.category.id } });
-    toast('Transaction added.');
+    const result = await withBusy(button, () => api('/api/quick/', { method: 'POST', body: { text, save: true, category } }));
+    toast('Transação adicionada.');
     if (result.warning) toast(result.warning, { kind: 'warn' });
     $('#quick-input').value = '';
     preview.hidden = true;
@@ -280,6 +296,6 @@ async function commit(parsed) {
 
 form.addEventListener('submit', showPreview);
 
-function loadAll() { loadSummary(); loadRecent(); loadBudgets(); loadAccounts(); loadAlerts(); loadOnboarding(); loadInsights(); }
+function loadAll() { loadSummary(); loadPlan(); loadRecent(); loadBudgets(); loadAccounts(); loadAlerts(); loadOnboarding(); loadInsights(); }
 loadAll();
 document.addEventListener('tx:changed', loadAll);

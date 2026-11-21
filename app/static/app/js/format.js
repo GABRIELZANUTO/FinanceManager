@@ -47,24 +47,34 @@ export function formatMoney(value, withSymbol = true) {
   if (!withSymbol || !config.symbol) return text;
   const negative = text.startsWith('-');
   const body = negative ? text.slice(1) : text;
-  const joiner = /[A-Za-z]$/.test(config.symbol) ? ' ' : '';
+  // "R$ 1.234,56", "Rs 1,500.00", "$1,500.00": a space when the symbol contains letters
+  const joiner = /[A-Za-z]/.test(config.symbol) ? ' ' : '';
   return (negative ? '-' : '') + config.symbol + joiner + body;
 }
 
-// Short axis labels: 1.2k, 3.4M.
+// Short axis labels: 1,2 mil; 3,4 mi; 2 bi.
 export function compact(value) {
   const abs = Math.abs(value);
   const sign = value < 0 ? '-' : '';
-  const trim = (n) => String(Math.round(n * 10) / 10);
-  if (abs >= 1e9) return sign + trim(abs / 1e9) + 'B';
-  if (abs >= 1e6) return sign + trim(abs / 1e6) + 'M';
-  if (abs >= 1e3) return sign + trim(abs / 1e3) + 'k';
+  const decimalSep = (SEPARATORS[config.format] || SEPARATORS.intl)[1];
+  const trim = (n) => String(Math.round(n * 10) / 10).replace('.', decimalSep);
+  if (abs >= 1e9) return sign + trim(abs / 1e9) + ' bi';
+  if (abs >= 1e6) return sign + trim(abs / 1e6) + ' mi';
+  if (abs >= 1e3) return sign + trim(abs / 1e3) + ' mil';
   return sign + trim(abs);
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const MONTHS_LONG = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 
 export function monthShort(ym) { return MONTHS[Number(ym.slice(5, 7)) - 1]; }
-export function monthLong(ym) { return `${MONTHS_LONG[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`; }
+export function monthLong(ym) {
+  const name = MONTHS_LONG[Number(ym.slice(5, 7)) - 1];
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)} de ${ym.slice(0, 4)}`;
+}
 export function dayLabel(iso) { return `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]}`; }
+/** '2026-11-04' -> '04/11/2026' (empty and non-ISO values are returned as they are). */
+export function dateBR(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || '');
+}

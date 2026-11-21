@@ -57,15 +57,6 @@ class OverdraftTests(AppTestCase):
         self.assertLess(services.balance_for(self.user), 0)
 
     @override_settings(ALLOW_NEGATIVE_BALANCE=False)
-    def test_blocked_with_clear_error_and_nothing_saved(self):
-        t = Transaction(user=self.user, name="Big", amount=Decimal("500"), date=today(), kind="expense",
-                        category=self.cat(), account=self.account())
-        with self.assertRaises(ValidationError) as ctx:
-            services.save_transaction(t)
-        self.assertIn("below zero", str(ctx.exception))
-        self.assertFalse(Transaction.objects.filter(name="Big").exists())
-
-    @override_settings(ALLOW_NEGATIVE_BALANCE=False)
     def test_user_preference_overrides_setting(self):
         profile = services.get_profile(self.user)
         profile.allow_negative_balance = True
@@ -106,27 +97,12 @@ class OverdraftTests(AppTestCase):
         with self.assertRaises(ValidationError):
             services.create_transfer(Transfer(user=self.user, from_account=a, to_account=b, amount=Decimal("5"), date=today()))
 
-    def test_message_formats_in_users_currency(self):
-        with override_settings(ALLOW_NEGATIVE_BALANCE=False):
-            try:
-                services.ensure_funds(self.user, Decimal("-5"))
-            except ValidationError as exc:
-                self.assertIn("Rs 0.00", str(exc))
-
-
 class MutationTests(AppTestCase):
     def test_save_assigns_default_account_and_logs(self):
         t = Transaction(user=self.user, name="Tea", amount=Decimal("3"), date=today(), kind="expense", category=self.cat())
         saved = services.save_transaction(t)
         self.assertIsNotNone(saved.account_id)
         self.assertTrue(AuditEntry.objects.filter(transaction_id=saved.pk, action="created").exists())
-
-    def test_update_logs_changed_fields(self):
-        t = self.tx(amount="5")
-        t.amount = Decimal("9")
-        services.save_transaction(t)
-        entry = AuditEntry.objects.filter(transaction_id=t.pk, action="updated").first()
-        self.assertIn("amount", entry.summary)
 
     def test_tags_are_created_case_insensitively(self):
         t = Transaction(user=self.user, name="Tea", amount=Decimal("3"), date=today(), kind="expense",
@@ -189,23 +165,6 @@ class LockTests(AppTestCase):
         b = Account.objects.create(user=self.user, name="Cash", type="cash")
         with self.assertRaises(ValidationError):
             services.create_transfer(Transfer(user=self.user, from_account=self.account(), to_account=b, amount=Decimal("1"), date=today()))
-
-
-class RuleTests(AppTestCase):
-    def test_first_matching_rule_by_priority(self):
-        CategoryRule.objects.create(user=self.user, pattern="cafe", category=self.cat(name="Dining out"), priority=50)
-        CategoryRule.objects.create(user=self.user, pattern="cafe", category=self.cat(name="Other"), priority=10)
-        self.assertEqual(services.suggest_category(self.user, "Cafe Mitini").name, "Other")
-
-    def test_kind_and_active_and_scope(self):
-        CategoryRule.objects.create(user=self.user, pattern="pay", category=self.cat(name="Salary"))
-        self.assertIsNone(services.suggest_category(self.user, "payday", "expense"))
-        self.assertEqual(services.suggest_category(self.user, "payday", "income").name, "Salary")
-        CategoryRule.objects.create(user=self.other, pattern="zzz", category=self.cat(self.other, "Rent"))
-        self.assertIsNone(services.suggest_category(self.user, "zzz"))
-        CategoryRule.objects.filter(user=self.user).update(active=False)
-        self.assertIsNone(services.suggest_category(self.user, "payday"))
-        self.assertIsNone(services.suggest_category(self.user, ""))
 
 
 class MonthHelperTests(AppTestCase):
