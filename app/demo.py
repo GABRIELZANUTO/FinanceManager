@@ -45,6 +45,8 @@ def seed_user(user, seed=7):
     cash = account("Dinheiro", "cash", "500.00")
     wallet = account("Carteira digital", "wallet", "250.00")
     credit = account("Cartão de crédito", "credit")
+    Account.objects.filter(pk=credit.pk).update(credit_limit=D("6000.00"), due_day=10, closing_day=3)
+    credit.refresh_from_db()
     savings = account("Poupança", "bank", "4000.00")
 
     cats = {c.name: c for c in user.categories.all()}
@@ -147,6 +149,17 @@ def seed_user(user, seed=7):
         LedgerEntry.objects.create(person=person, kind=kind, amount=sign * D(amount), description=note,
                                    date=today - datetime.timedelta(days=back),
                                    due_date=today + datetime.timedelta(days=due) if due else None)
+    # Purchases in installments still to come: they hold the card limit (see planning.installments_left).
+    shopping = Category.objects.filter(user=user, name="Compras").first()
+    if shopping is not None:
+        first_due = services.add_months(today.replace(day=10), 1)
+        for name, amount, first, total in (("Geladeira (parcelado em 10x)", "389.90", 5, 10),
+                                           ("Celular (parcelado em 12x)", "210.00", 4, 12)):
+            RecurringTransaction.objects.get_or_create(
+                user=user, name=name, defaults={
+                    "amount": D(amount), "kind": "expense", "category": shopping, "account": credit, "payee": "Magazine",
+                    "start_date": first_due, "next_due": first_due, "installment_first": first, "installment_total": total,
+                    "end_date": services.add_months(first_due, total - first)})
     profile = services.get_profile(user)
     profile.setup_done = True
     profile.save(update_fields=["setup_done"])

@@ -15,15 +15,16 @@ Visual simples e leve, sem rastreamento, sem chamadas de rede do navegador a nã
 
 ## Telas
 
-As capturas abaixo são da versão original do projeto, em inglês e com dados de demonstração. A interface atual está em
-português.
+Capturas feitas com os dados de demonstração (`python manage.py seed_demo`); para gerar de novo, veja
+[Regerar as capturas de tela](#regerar-as-capturas-de-tela).
 
 | | |
 |---|---|
 | ![Painel](docs/screenshots/dashboard.png) **Painel** com observações em linguagem simples, próximos vencimentos, metas e assinaturas | ![Transações](docs/screenshots/transactions.png) **Transações** com filtros, ordenação, filtros salvos e ações em lote |
 | ![Nova transação](docs/screenshots/add-transaction.png) **Nova transação** com valores sugeridos, dicas de regra e "mais opções" | ![Orçamentos](docs/screenshots/budgets.png) **Orçamentos** com progresso, saldo acumulado, quanto ainda pode gastar por dia, projeção e histórico |
 | ![Análises](docs/screenshots/analytics.png) **Análises**: gráficos SVG próprios, filtros guardados na URL | ![Relatórios](docs/screenshots/reports.png) **Relatórios**: demonstrativo, tendências, patrimônio, fluxo de caixa, CSV e impressão |
-| ![Contas](docs/screenshots/accounts.png) **Contas** e transferências | ![Metas](docs/screenshots/goals.png) **Metas de poupança** com anéis de progresso |
+| ![Contas](docs/screenshots/accounts.png) **Contas** e transferências; o cartão mostra o limite já descontando as parcelas a vencer | ![Metas](docs/screenshots/goals.png) **Metas de poupança** com anéis de progresso |
+| ![Cartões](docs/screenshots/cards.png) **Faturas de cartão**: importação de CSV ou PDF | ![Conflito](docs/screenshots/conflict.png) **Conflito de edição**: o registro mudou em outro lugar e você escolhe o que fica |
 | ![Categorias](docs/screenshots/categories.png) **Categorias**, subcategorias, regras e tags | ![Diálogo de categoria](docs/screenshots/category-dialog.png) Escolha de cor e ícone |
 | ![Recorrentes](docs/screenshots/recurring.png) **Contas recorrentes** | ![Pessoas](docs/screenshots/people.png) **Dívidas e contas divididas** |
 | ![Resumo semanal](docs/screenshots/digest.png) **Resumo semanal** | ![Lixeira](docs/screenshots/trash.png) **Lixeira** (30 dias) e histórico de alterações |

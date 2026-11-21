@@ -40,7 +40,9 @@ def free_port():
 
 def find_chromium():
     for candidate in (os.environ.get("CHROMIUM"), "/snap/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/chromium",
-                      "/usr/bin/google-chrome"):
+                      "/usr/bin/google-chrome", r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                      r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"):
         if candidate and os.path.exists(candidate):
             return candidate
     sys.exit("Chromium not found. Set CHROMIUM=/path/to/chromium.")
@@ -164,12 +166,12 @@ def main():
     csv_path = upload_dir / "fm-import-example.csv"
     csv_path.write_text(
         "date,type,name,category,amount,payee,account,tags,note\n"
-        "2026-09-02,expense,Weekly groceries,Groceries,3200.00,Bhat-Bhateni,Main account,essential,\n"
-        "2026-09-03,expense,Cafe Mitini lunch,,640.00,Cafe Mitini,,,Lunch with the team\n"
-        "2026-09-05,income,Freelance logo project,Freelance,15000.00,Client,Main account,work,\n"
-        "2026-09-07,expense,Gym bag,Fitness,2800.00,Daraz,Cash,treat,New category\n"
-        "2026-09-09,expense,Broken row,Groceries,not-a-number,,,,\n"
-        "2026-09-11,expense,Internet plan,Internet,1500.00,WorldLink,Main account,essential,\n", encoding="utf-8")
+        "2026-09-02,expense,Compra do mês,Mercado,640.00,Carrefour,Conta principal,essencial,\n"
+        "2026-09-03,expense,Almoço com a equipe,,58.00,Restaurante Sabor,,,Almoço de trabalho\n"
+        "2026-09-05,income,Projeto de logotipo,Freelance,1800.00,Cliente,Conta principal,trabalho,\n"
+        "2026-09-07,expense,Mochila da academia,Esporte,189.90,Centauro,Dinheiro,,Categoria nova\n"
+        "2026-09-09,expense,Linha com erro,Mercado,nao-e-numero,,,,\n"
+        "2026-09-11,expense,Plano de internet,Internet,120.00,Vivo Fibra,Conta principal,essencial,\n", encoding="utf-8")
 
     port, debug_port = free_port(), free_port()
     env = dict(os.environ, DEBUG="1", SECRET_KEY="screenshots-only-key", DATABASE_PATH=str(work / "demo.sqlite3"),
@@ -260,9 +262,9 @@ def main():
         go("/login/", ready="true")
         shot("login")
         go("/register/", ready="true")
-        fill("#id_full_name", "Asha Gurung")
-        fill("#id_username", "asha")
-        fill("#id_email", "asha@example.com")
+        fill("#id_full_name", "Mariana Costa")
+        fill("#id_username", "mariana")
+        fill("#id_email", "mariana@example.com")
         fill("#id_password1", "river-Lamp-42-bridge")
         fill("#id_password2", "river-Lamp-42-bridge")
         click("[data-pw-toggle]")
@@ -270,19 +272,19 @@ def main():
 
         # register page with problems, then valid
         go("/register/", ready="true")
-        fill("#id_full_name", "Asha")
+        fill("#id_full_name", "Mariana")
         fill("#id_username", "demo")
-        fill("#id_email", "asha@")
-        fill("#id_password1", "asha12")
-        fill("#id_password2", "asha13")
+        fill("#id_email", "mariana@")
+        fill("#id_password1", "mari12")
+        fill("#id_password2", "mari13")
         time.sleep(1.0)
         click("#id_email")
         cdp.eval("document.getElementById('id_email').blur()")
         shot("register-invalid", full=True)
         go("/register/", ready="true")
-        fill("#id_full_name", "Asha")
-        fill("#id_username", "asha-g")
-        fill("#id_email", "asha@example.com")
+        fill("#id_full_name", "Mariana")
+        fill("#id_username", "mariana-c")
+        fill("#id_email", "mariana@example.com")
         fill("#id_password1", "river-Lamp-42-bridge")
         fill("#id_password2", "river-Lamp-42-bridge")
         time.sleep(1.0)
@@ -296,20 +298,20 @@ def main():
         # --- signed in
         cdp.call("Network.setCookie", name="sessionid", value=session, domain="127.0.0.1", path="/")
         go("/")
-        fill("#quick-input", "lunch 450 dining")
+        fill("#quick-input", "almoço 45,90 restaurantes")
         click("#quick-add button[type=submit]")
         time.sleep(1.0)
         shot("dashboard", full=True)
 
-        go("/transactions/?type=expense&date_from=2026-07-01&sort=-amount&page_size=10&min_amount=1000", ready="true")
+        go("/transactions/?type=expense&date_from=2026-07-01&sort=-amount&page_size=10&min_amount=100", ready="true")
         shot("transactions", full=True)
 
         go("/transactions/", ready="true")
         click("button[data-new-transaction]")
         time.sleep(0.4)
-        fill("#tx-name", "Pathao ride to office")
-        fill("#tx-amount", "420")
-        fill("#tx-tags", "work")
+        fill("#tx-name", "Uber para o escritório")
+        fill("#tx-amount", "23,50")
+        fill("#tx-tags", "trabalho")
         time.sleep(0.8)
         shot("add-transaction")
 
@@ -318,6 +320,27 @@ def main():
         go("/transactions/", ready="true")
         click("#reconcile summary")
         shot("transactions-tools")
+
+        # edit conflict: the same transaction saved "in another tab" while this form is open
+        go("/transactions/", ready="true")
+        click("[data-edit]")
+        time.sleep(0.8)
+        cdp.eval("""(async () => { const id = document.querySelector('[data-edit]').dataset.edit;
+          const csrf = document.querySelector('meta[name=csrf-token]').content;
+          const t = (await fetch('/api/transactions/' + id + '/').then(r => r.json())).transaction;
+          await fetch('/api/transactions/' + id + '/', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
+            body: JSON.stringify({name: t.name + ' (outra aba)', amount: t.amount, kind: t.kind, date: t.date,
+                                  category: t.category.id, account: t.account && t.account.id, note: 'alterada em outra aba'})});
+        })()""", await_promise=True)
+        fill("#tx-amount", "99,90")
+        click("#tx-form [data-submit]")
+        time.sleep(1.2)
+        shot("conflict")
+        click("#conflict-dialog [data-choice=current]")
+        time.sleep(1.5)
+
+        go("/cards/", ready="true")
+        shot("cards", full=True)
 
         go("/accounts/")
         shot("accounts", full=True)
@@ -369,7 +392,7 @@ def main():
         go("/", ready="true")
         cdp.eval("document.body.dispatchEvent(new KeyboardEvent('keydown', {key: '/', bubbles: true}))")
         time.sleep(0.4)
-        fill("#search-input", "dining last month over 500")
+        fill("#search-input", "restaurante mês passado acima de 50")
         time.sleep(1.2)
         shot("search")
 
@@ -378,7 +401,7 @@ def main():
         shot("sidebar-expanded")
         click("#sidebar-collapse")
         time.sleep(0.6)
-        cdp.eval("document.querySelector('.nav a[data-tip=\"Goals\"]').dispatchEvent(new MouseEvent('mouseover', {bubbles: true}))")
+        cdp.eval("document.querySelector('.nav a[data-tip=\"Metas\"]').dispatchEvent(new MouseEvent('mouseover', {bubbles: true}))")
         shot("sidebar-collapsed")
         click("#sidebar-collapse")
 
